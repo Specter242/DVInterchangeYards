@@ -175,7 +175,7 @@ namespace Interchanges
         private static readonly List<MeshRenderer> lining = new List<MeshRenderer>();
         internal const string OwnPrefix = "interchanges ";
 
-        /// <summary>A stock tunnel or concrete material if one is loaded, else plain concrete grey.</summary>
+        /// <summary>A stock tiling concrete if one is loaded, else plain concrete grey.</summary>
         private static Material FindMaterial()
         {
             if (cached != null)
@@ -192,8 +192,17 @@ namespace Interchanges
             // Plain stone or concrete: not a painted, coloured, glass or decal variant.
             string[] skip = { "blue", "red", "green", "yellow", "orange", "white", "black", "paint", "decal", "glass", "stripe" };
             bool Plain(Material m) => !skip.Any(w => Named(m, w));
-            return all.FirstOrDefault(m => Named(m, "tunnel") && Standard(m) && Plain(m))
-                   ?? all.FirstOrDefault(m => Named(m, "concrete") && Standard(m) && Plain(m));
+            // A concrete that tiles, named outright: whichever material loaded first used to win,
+            // and the stock tunnel's own (tunnel_ent) is a texture atlas laid out for its portal
+            // model, so on these walls it repeated whole pictures of a portal (owner, 2026-11-03:
+            // "looks like our tunnel textures may be messed up"). Never a tunnel material.
+            foreach (var name in new[] { "MB_ConcreteRough", "MB_Concrete", "MB_ConcreteVertical" })
+            {
+                var named = all.FirstOrDefault(m => m.name == name && Standard(m));
+                if (named != null)
+                    return named;
+            }
+            return all.FirstOrDefault(m => Named(m, "concrete") && !Named(m, "tunnel") && Standard(m) && Plain(m));
         }
 
         /// <summary>The loaded stock materials that could line a tunnel, for the inspector's log.</summary>
@@ -205,7 +214,7 @@ namespace Interchanges
 
         /// <summary>
         /// The railway loads before most scenery, so the lining may have had to start grey; once
-        /// the world has loaded, a stock tunnel or concrete material takes its place if one is there.
+        /// the world has loaded, a stock concrete takes its place if one is there.
         /// </summary>
         public static void RefreshMaterial()
         {
@@ -214,7 +223,7 @@ namespace Interchanges
             var stock = StockMaterial();
             if (stock == null)
             {
-                Notes.Add("tunnel lining: no stock tunnel or concrete material loaded; it stays plain concrete grey");
+                Notes.Add("tunnel lining: no stock concrete loaded; it stays plain concrete grey");
                 return;
             }
             cached = stock;

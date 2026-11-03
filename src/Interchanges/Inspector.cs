@@ -30,7 +30,11 @@ namespace Interchanges
     ///   over the ground wherever the terrain was loaded, against the designed bed;</item>
     /// <item>the errors and exceptions the game logged meanwhile.</item>
     /// </list>
-    /// It quits afterwards if the trigger says "quit".
+    /// It quits afterwards if the trigger says "quit". With "quick" (compatibility runs with
+    /// other mods: owner, 2026-11-03, "it's just jumping to different views. this seems like a
+    /// waste") it checks the build, switches and tie-ins, pushes a car only along each tie-in's
+    /// route, and takes only the tie-in and tunnel views (or those listed on a "views:" line);
+    /// no offices, kiosks, buffer stops, maps or books.
     /// </summary>
     internal sealed class Inspector : MonoBehaviour
     {
@@ -38,6 +42,8 @@ namespace Interchanges
         private static bool requested, quitAfter, continued, started;
         private static bool saveTest, reloadTest;   // a real save of cars on our track, then a fresh game loading it
         private static bool saveTestOnly, vanillaTest;
+        private static bool quick;
+        private static HashSet<string> quickViews = new HashSet<string> { "r10-switch", "portal-in", "ime-r18-switch", "ime-portal-in" };
 
         public static bool VanillaRequested(string folder)
         {
@@ -69,6 +75,10 @@ namespace Interchanges
                 reloadTest = text.IndexOf("reload", StringComparison.OrdinalIgnoreCase) >= 0;
                 saveTestOnly = text.IndexOf("savetestonly", StringComparison.OrdinalIgnoreCase) >= 0;
                 vanillaTest = text.IndexOf("vanilla", StringComparison.OrdinalIgnoreCase) >= 0;
+                quick = text.IndexOf("quick", StringComparison.OrdinalIgnoreCase) >= 0;
+                var views = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("views:", StringComparison.Ordinal));
+                if (views != null)
+                    quickViews = new HashSet<string>(views.Substring("views:".Length).Split(',').Select(v => v.Trim()).Where(v => v.Length > 0));
                 var fault = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("fault:", StringComparison.Ordinal));
                 if (fault != null)
                 {
@@ -262,11 +272,19 @@ namespace Interchanges
             yield return Cars();
             foreach (var layout in Main.Layouts)
                 foreach (var run in layout.Runs)
+                {
+                    // Quick: only the route in from the stock track, through the tie-in.
+                    if (quick && !run.From.EndsWith(" stub", StringComparison.Ordinal))
+                        continue;
                     yield return Push(run);
-            Try("office check", OfficeCheck);
+                }
+            if (!quick)
+                Try("office check", OfficeCheck);
             foreach (var layout in Main.Layouts)
                 foreach (var view in layout.Views)
                 {
+                    if (quick && (view.Kiosk != null || !quickViews.Contains(view.Name)))
+                        continue;
                     if (view.Kiosk != null)
                     {
                         yield return Kiosk(view);
@@ -276,8 +294,34 @@ namespace Interchanges
                     Try("ground check", Ground);
                     Try("office ground", OfficeGround);
                 }
-            // Each buffer stop up close, from beyond the track's end.
+            // The distant view: each yard from 4 km away, so it is drawn by the distant terrain
+            // only, with the painted ground map and then with the stock one.
+            foreach (var note in DistantTrack.Notes)
+                Line("note: " + note);
+            if (!DistantTrack.Painted)
+                Problem("the distant view isn't painted");
             foreach (var layout in Builder.Built)
+            {
+                var beds = layout.Earthworks.SelectMany(e => e.Points).ToList();
+                if (beds.Count == 0)
+                    continue;
+                var centre = new Vector3(beds.Average(p => p[0]), beds.Average(p => p[1]), beds.Average(p => p[2]));
+                var inward = new Vector3(8192f - centre.x, 0f, 8192f - centre.z).normalized;
+                var eye = centre + inward * 4000f + Vector3.up * 900f;
+                var name = $"distant-{layout.Code?.ToLowerInvariant() ?? layout.Site}";
+                yield return Shot(new ViewSpec
+                {
+                    Name = name, Eye = new[] { eye.x, eye.y, eye.z }, Target = new[] { centre.x, centre.y, centre.z }, Fov = 18f, Wait = 6f,
+                });
+                if (!DistantTrack.Painted)
+                    continue;
+                DistantTrack.ShowStock(true);
+                yield return null;
+                yield return Capture(name + "-stock", () => (Frames.World(Root, eye), Frames.World(Root, centre)), 18f);
+                DistantTrack.ShowStock(false);
+            }
+            // Each buffer stop up close, from beyond the track's end.
+            foreach (var layout in quick ? Enumerable.Empty<Layout>() : Builder.Built)
                 for (var i = 0; i < layout.BufferStops.Count; i++)
                 {
                     var b = layout.BufferStops[i];
@@ -292,10 +336,14 @@ namespace Interchanges
                         Target = new[] { target.x, target.y, target.z }, Fov = 50f, Wait = 4f,
                     });
                 }
-            yield return MapAndFastTravel();
-            yield return Books();
+            if (!quick)
+            {
+                yield return MapAndFastTravel();
+                yield return Books();
+            }
             Try("ground report", GroundReport);
-            Try("office ground report", OfficeGroundReport);
+            if (!quick)
+                Try("office ground report", OfficeGroundReport);
             Line($"terrain: {TerrainEdits.TilesEdited} tile loads edited, {TerrainEdits.SamplesChanged} height samples changed; " +
                  $"{TerrainEdits.TexelsPainted} splat texels painted with layer {TerrainEdits.StationLayer} ({TerrainEdits.StationLayerName ?? "not seen"}); " +
                  $"vegetation masks {Extras.Masks.Count(m => m != null)}");

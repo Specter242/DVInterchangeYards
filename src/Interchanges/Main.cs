@@ -42,6 +42,7 @@ namespace Interchanges
                 Inspector.Install();
 #endif
                 WorldStreamingInit.LoadingFinished += Extras.RefreshMaterial;
+                WorldStreamingInit.LoadingFinished += () => DistantTrack.TryPaint(true);
                 return true;
             }
             catch (Exception e)

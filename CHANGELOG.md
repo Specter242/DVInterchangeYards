@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 (2026-11-03)
+
+- The yards now show in the distant view, as stock yards do.
+- The tunnels' concrete no longer shows a tiled pattern of portal pictures in some games.
+- Works with Double Tracked Valley and DV Signals. Start a new career with Double Tracked Valley: added to an existing one, it removes every car you don't own.
+
 ## 0.1.1 (2026-11-03)
 
 - Unity Mod Manager now checks for new versions and can install them.

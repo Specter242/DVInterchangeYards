@@ -199,6 +199,8 @@ namespace Interchanges
             {
                 building = false;
             }
+            // The distant view, if its terrain is loaded already (else when loading finishes).
+            DistantTrack.TryPaint(false);
         }
     }
 
@@ -331,6 +333,18 @@ namespace Interchanges
             public double OriginalSpan => Original?.span ?? 0;
         }
 
+        /// <summary>
+        /// Whether a track is the stock track a layout edits, or a piece of it another mod split it
+        /// into. Double Tracked Valley splits stock tracks before this builds (in the railway scene's
+        /// load), naming the pieces with an A or B appended per split: it puts a derail switch on
+        /// MF's Road 10 27 m north of the West Interchange's switch, which then stands on Road 10A.
+        /// The piece is still the stock curve, and the closest one within 2 m of the switch's joint
+        /// is the one edited.
+        /// </summary>
+        internal static bool IsPieceOf(string name, string stock) =>
+            name != null && stock != null && name.StartsWith(stock, StringComparison.Ordinal)
+            && name.Skip(stock.Length).All(ch => ch == 'A' || ch == 'B');
+
         private PendingTrim PrepareTrim(StockEdit edit)
         {
             var throughEnd = W(Vec.Of(edit.TrimEndTo));
@@ -338,11 +352,13 @@ namespace Interchanges
             if ((sw.ThroughEndLayout - throughEnd).magnitude > 1f)
                 throw new InvalidOperationException($"stock edit on {edit.Track}: no switch whose through end is at the trim point");
             var stock = root.GetComponentsInChildren<RailTrack>(true)
-                .Where(t => t.name == edit.Track && !Builder.IsOurs(t))
+                .Where(t => IsPieceOf(t.name, edit.Track) && !Builder.IsOurs(t))
                 .Select(t => (Track: t, Cut: CurveCut.Closest(t.curve, sw.JointWorld)))
                 .OrderBy(c => c.Cut.Distance).FirstOrDefault();
             if (stock.Track == null || stock.Cut.Distance > 2f)
                 throw new InvalidOperationException($"stock track {edit.Track} not found within 2 m of switch {sw.Spec.Id}'s joint");
+            if (stock.Track.name != edit.Track)
+                Notes.Add($"{edit.Track}: another mod has split it; the switch goes on its piece {stock.Track.name}");
             var curve = stock.Track.curve;
             var joint = stock.Cut;
             var original = stock.Track.GetKinkedPointSet();
@@ -740,10 +756,13 @@ namespace Interchanges
             // (as for the offices' copies), so the copy's lever sets itself up afresh and clicks.
             Offices.ResetControls(Root);
             Junction = Root.GetComponentInChildren<Junction>(true);
+            // Double Tracked Valley renames every track without a digit in its name as it loads,
+            // a stock switch's legs too ("[track through] 42"), so the legs are found by the start
+            // of their names.
             foreach (var t in Root.GetComponentsInChildren<RailTrack>(true))
             {
-                if (t.name == "[track through]") Through = t;
-                else if (t.name == "[track diverging]") Diverging = t;
+                if (t.name.StartsWith("[track through]", StringComparison.Ordinal)) Through = t;
+                else if (t.name.StartsWith("[track diverging]", StringComparison.Ordinal)) Diverging = t;
             }
             if (Junction == null || Through == null || Diverging == null)
                 throw new InvalidOperationException($"switch {spec.Id}: the cloned asset lacks its junction or legs");
