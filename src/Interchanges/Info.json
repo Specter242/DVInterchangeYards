@@ -1,0 +1,11 @@
+{
+  "Id": "Interchanges",
+  "DisplayName": "Interchange Yards",
+  "Author": "Specter242",
+  "Version": "0.1.1",
+  "ManagerVersion": "0.27.3",
+  "AssemblyName": "Interchanges.dll",
+  "HomePage": "https://www.nexusmods.com/derailvalley/mods/1815",
+  "Repository": "https://raw.githubusercontent.com/Specter242/DVInterchangeYards/main/repository.json",
+  "EntryMethod": "Interchanges.Main.Load"
+}

@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Adds the interchange track to the stock map at load (docs/site-study.md). -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>Interchanges</AssemblyName>
+    <RootNamespace>Interchanges</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- The in-game inspector is a development tool, built by default; scripts/package.sh builds
+       with -p:DevTools=false, leaving it out of a release. -->
+  <PropertyGroup>
+    <DevTools Condition="'$(DevTools)' == ''">true</DevTools>
+    <DefineConstants Condition="'$(DevTools)' == 'true'">$(DefineConstants);DEVTOOLS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(DevTools)' != 'true'">
+    <Compile Remove="Inspector.cs" />
+  </ItemGroup>
+
+  <!-- Game and loader assemblies are referenced in place and never copied. -->
+  <ItemGroup>
+    <Reference Include="0Harmony" HintPath="$(DvModManagerDir)/0Harmony.dll" Private="false" />
+    <Reference Include="UnityModManager" HintPath="$(DvModManagerDir)/UnityModManager.dll" Private="false" />
+    <Reference Include="Assembly-CSharp" HintPath="$(DvManagedDir)/Assembly-CSharp.dll" Private="false" />
+    <Reference Include="AwesomeTechnologies.VegetationStudioPro.Runtime" HintPath="$(DvManagedDir)/AwesomeTechnologies.VegetationStudioPro.Runtime.dll" Private="false" />
+    <Reference Include="BezierCurves" HintPath="$(DvManagedDir)/BezierCurves.dll" Private="false" />
+    <Reference Include="CommandTerminal" HintPath="$(DvManagedDir)/CommandTerminal.dll" Private="false" />
+    <Reference Include="DV.BrakeSystem" HintPath="$(DvManagedDir)/DV.BrakeSystem.dll" Private="false" />
+    <Reference Include="DV.CabControls.Spec" HintPath="$(DvManagedDir)/DV.CabControls.Spec.dll" Private="false" />
+    <Reference Include="DV.Common" HintPath="$(DvManagedDir)/DV.Common.dll" Private="false" />
+    <Reference Include="DV.Interaction" HintPath="$(DvManagedDir)/DV.Interaction.dll" Private="false" />
+    <Reference Include="DV.Localization" HintPath="$(DvManagedDir)/DV.Localization.dll" Private="false" />
+    <Reference Include="I2.Localization" HintPath="$(DvManagedDir)/I2.Localization.dll" Private="false" />
+    <Reference Include="DV.PointSet" HintPath="$(DvManagedDir)/DV.PointSet.dll" Private="false" />
+    <Reference Include="DV.RailTrack" HintPath="$(DvManagedDir)/DV.RailTrack.dll" Private="false" />
+    <Reference Include="DV.TerrainSystem" HintPath="$(DvManagedDir)/DV.TerrainSystem.dll" Private="false" />
+    <Reference Include="DV.ThingTypes" HintPath="$(DvManagedDir)/DV.ThingTypes.dll" Private="false" />
+    <Reference Include="DV.UI" HintPath="$(DvManagedDir)/DV.UI.dll" Private="false" />
+    <Reference Include="DV.UserManagement" HintPath="$(DvManagedDir)/DV.UserManagement.dll" Private="false" />
+    <Reference Include="DV.Utils" HintPath="$(DvManagedDir)/DV.Utils.dll" Private="false" />
+    <Reference Include="net.smkd.vector3d" HintPath="$(DvManagedDir)/net.smkd.vector3d.dll" Private="false" />
+    <Reference Include="Newtonsoft.Json" HintPath="$(DvManagedDir)/Newtonsoft.Json.dll" Private="false" />
+    <Reference Include="WorldStreamer" HintPath="$(DvManagedDir)/WorldStreamer.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(DvManagedDir)/UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(DvManagedDir)/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.AnimationModule" HintPath="$(DvManagedDir)/UnityEngine.AnimationModule.dll" Private="false" />
+    <Reference Include="UnityEngine.PhysicsModule" HintPath="$(DvManagedDir)/UnityEngine.PhysicsModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ScreenCaptureModule" HintPath="$(DvManagedDir)/UnityEngine.ScreenCaptureModule.dll" Private="false" />
+    <Reference Include="UnityEngine.TerrainModule" HintPath="$(DvManagedDir)/UnityEngine.TerrainModule.dll" Private="false" />
+    <Reference Include="Unity.TextMeshPro" HintPath="$(DvManagedDir)/Unity.TextMeshPro.dll" Private="false" />
+    <Reference Include="UnityEngine.UI" HintPath="$(DvManagedDir)/UnityEngine.UI.dll" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Info.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="layout-*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
