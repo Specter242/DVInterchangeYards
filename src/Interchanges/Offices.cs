@@ -116,6 +116,7 @@ namespace Interchanges
                         Object.DestroyImmediate(child.gameObject);
                     }
                 var reset = ResetControls(office);
+                var foreign = ResetOtherMods(office);
                 var marker = MapMarks.AddFastTravel(layout, spec, office);
                 office.transform.SetPositionAndRotation(mapFrame.TransformPoint(Vec.Of(spec.Position)),
                                                         mapFrame.rotation * Quaternion.Euler(0f, spec.Yaw, 0f));
@@ -125,7 +126,7 @@ namespace Interchanges
                 office.transform.SetParent(stock, true);
                 Built.Add((spec, office));
                 Notes.Add($"office {spec.Name}: copy of {spec.Source}, without {string.Join(", ", removed)}; " +
-                          $"{reset} control part(s) reset");
+                          $"{reset} control part(s) reset" + (foreign.Count > 0 ? $"; other mods' kiosk parts taken out: {string.Join(", ", foreign)}" : ""));
             }
             finally
             {
@@ -169,6 +170,34 @@ namespace Interchanges
             foreach (var part in parts.Distinct().OrderBy(p => p is DV.CabControls.ControlImplBase ? 0 : p is Joint ? 1 : 2))
                 Object.DestroyImmediate(part);
             return parts.Count;
+        }
+
+        /// <summary>The components other mods add to a kiosk as it wakes, by type name (this mod references neither).</summary>
+        private static readonly string[] OtherModsParts = { "CareerManagerAPI.CareerManagerScreenTracker" };
+
+        /// <summary>Railroad Contracts' kiosk screens, on an object of their own that goes with them.</summary>
+        private static readonly string[] OtherModsScreens = { "Contracts.Mod.Kiosk.ContractsScreen", "Contracts.Mod.Kiosk.ContractScreen" };
+
+        /// <summary>
+        /// Takes out of a copied office what other mods attached to the stock office's kiosk when it
+        /// woke; each attaches its own to the copy as the copy wakes. Left in, Career Manager API's
+        /// copied tracker has no screen: its Start throws, and the kiosk's input goes to it first and
+        /// throws on every press (a Discord report, 2026-11-03: "null exception using the career
+        /// managers in the new terminals"). Railroad Contracts' copied screens would be left unset.
+        /// Returns what it took out.
+        /// </summary>
+        internal static List<string> ResetOtherMods(GameObject office)
+        {
+            var found = office.GetComponentsInChildren<MonoBehaviour>(true)
+                .Where(m => m != null && (OtherModsParts.Contains(m.GetType().FullName) || OtherModsScreens.Contains(m.GetType().FullName)))
+                .ToList();
+            var taken = found.Select(m => m.GetType().Name).ToList();
+            var screens = found.Where(m => OtherModsScreens.Contains(m.GetType().FullName)).Select(m => m.gameObject).Distinct().ToList();
+            foreach (var part in found.Where(m => OtherModsParts.Contains(m.GetType().FullName)))
+                Object.DestroyImmediate(part);
+            foreach (var go in screens)
+                Object.DestroyImmediate(go);
+            return taken;
         }
 
         // StaticInteractionArea's private GOActiveDetector, added to the control at runtime.

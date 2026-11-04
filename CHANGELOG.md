@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (2026-11-04)
+
+- The offices' kiosks work with Career Manager API: no more error at load, and Railroad Contracts' menu shows there too.
+
 ## 0.1.2 (2026-11-03)
 
 - The yards now show in the distant view, as stock yards do.
