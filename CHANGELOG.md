@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 (2026-11-05)
+
+- The signs on the yard ladder switches face the right way, as on the main line switches.
+
 ## 0.1.3 (2026-11-04)
 
 - The offices' kiosks work with Career Manager API: no more error at load, and Railroad Contracts' menu shows there too.

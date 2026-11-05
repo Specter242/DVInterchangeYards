@@ -267,6 +267,7 @@ namespace Interchanges
             Try("buffer stops", BufferStops);
             Try("job tracks", JobTrackCheck);
             Try("switch throws", Switches);
+            Try("switch signs", SwitchSigns);
             Try("switch save round trip", JunctionRoundTrip);
             Try("tie-in geometry", TieInGeometry);
             yield return Cars();
@@ -294,6 +295,7 @@ namespace Interchanges
                     Try("ground check", Ground);
                     Try("office ground", OfficeGround);
                 }
+            yield return SignViews();
             // The distant view: each yard from 4 km away, so it is drawn by the distant terrain
             // only, with the painted ground map and then with the stock one.
             foreach (var note in DistantTrack.Notes)
@@ -499,6 +501,81 @@ namespace Interchanges
                 {
                     Problem($"throwing junction {name} threw: {e.GetBaseException().Message}");
                 }
+            }
+        }
+
+        /// <summary>A switch's parts, as SwitchStands leaves them: the sign's holder, the sign, its stand's base; moved or not.</summary>
+        private static (Transform Root, Transform Holder, Transform Sign, Transform Base, bool Moved)? SignParts(Junction j)
+        {
+            var root = j.transform.parent != null ? j.transform.parent : j.transform;
+            var moved = root.Find("[stand sign]") != null;
+            var holder = root.Find(moved ? "[stand sign]/Graphical" : "Graphical");
+            var sign = holder?.Find("switch_sign");
+            var stand = root.Find(moved ? "[stand linkage]/Graphical/switch_base" : "Graphical/switch_base");
+            return holder == null || sign == null || stand == null ? null : ((Transform, Transform, Transform, Transform, bool)?)(root, holder, sign, stand, moved);
+        }
+
+        /// <summary>
+        /// The yard switches' signs (SwitchStands; a Nexus bug report, 2026-11-04: the ladder
+        /// switches' signs faced the wrong way): a switch whose stand was moved outside has its
+        /// sign facing along the track as the stock sign does, and still on its stand. Measured
+        /// against the switches left as stock: the sign's holder turned the same from its switch,
+        /// and the sign as far from its stand's base.
+        /// </summary>
+        private void SwitchSigns()
+        {
+            float Yaw(Transform root, Transform t) => Mathf.DeltaAngle(0f, (Quaternion.Inverse(root.rotation) * t.rotation).eulerAngles.y);
+            float Reach(Transform a, Transform b) => Vector2.Distance(new Vector2(a.position.x, a.position.z), new Vector2(b.position.x, b.position.z));
+            var parts = Builder.OurJunctions.Select(SignParts).Where(p => p.HasValue).Select(p => p.Value).ToList();
+            var stock = parts.Where(p => !p.Moved).ToList();
+            if (stock.Count == 0 || parts.Count != Builder.OurJunctions.Count)
+            {
+                Problem($"switch signs: {parts.Count} of {Builder.OurJunctions.Count} switches have their sign and stand where expected, {stock.Count} left as stock");
+                return;
+            }
+            var yaw = stock.Average(p => Yaw(p.Root, p.Holder));
+            var reach = stock.Average(p => Reach(p.Sign, p.Base));
+            var spread = stock.Max(p => Mathf.Abs(Mathf.DeltaAngle(yaw, Yaw(p.Root, p.Holder))));
+            Line($"switch signs: as stock ({stock.Count} switches): the sign's holder {yaw:F1} deg from its switch (within {spread:F1}), the sign {reach:F2} m from its stand's base");
+            foreach (var p in parts.Where(p => p.Moved).OrderBy(p => p.Root.name, StringComparer.Ordinal))
+            {
+                var y = Yaw(p.Root, p.Holder);
+                var r = Reach(p.Sign, p.Base);
+                Line($"switch sign {p.Root.name}: its holder {y:F1} deg from its switch, the sign {r:F2} m from its stand's base");
+                if (Mathf.Abs(Mathf.DeltaAngle(y, yaw)) > 2f)
+                    Problem($"switch sign {p.Root.name} faces {Mathf.DeltaAngle(yaw, y):F0} deg off the stock sign's way");
+                if (Mathf.Abs(r - reach) > 0.05f)
+                    Problem($"switch sign {p.Root.name} stands {r:F2} m from its stand's base, the stock sign {reach:F2} m");
+            }
+        }
+
+        /// <summary>
+        /// Each yard's first ladder switch with its stand moved outside and the one before it left
+        /// as stock, their signs close up from either end of the switch (behind and ahead of it): the signs should face the
+        /// same way.
+        /// </summary>
+        private IEnumerator SignViews()
+        {
+            foreach (var id in new[] { "MFW-N-0", "MFW-N-1", "IMEW-W-0", "IMEW-W-1" })
+            {
+                var j = Builder.OurJunctions.FirstOrDefault(x => (x.transform.parent != null ? x.transform.parent.name : x.name).EndsWith($"({id})", StringComparison.Ordinal));
+                var parts = j == null ? null : SignParts(j);
+                if (parts == null)
+                {
+                    Problem($"sign views: no switch {id} with its sign");
+                    continue;
+                }
+                var (root, _, sign, _, moved) = parts.Value;
+                PlayerManager.TeleportPlayer(sign.position + Vector3.up * 1.5f, Quaternion.identity, null, false);
+                yield return new WaitForSeconds(3f);
+                var grid = SingletonBehaviour<TerrainGrid>.Instance;
+                for (var waited = 0f; grid != null && grid.IsLoadingInProgress() && waited < 60f; waited += 1f)
+                    yield return new WaitForSeconds(1f);
+                yield return new WaitForSeconds(5f);
+                Line($"sign views: {id} ({(moved ? "stand moved outside" : "as stock")})");
+                foreach (var (end, along) in new[] { ("behind", -1f), ("ahead", 1f) })
+                    yield return Capture($"sign-{id.ToLowerInvariant()}-{end}",
+                        () => (sign.position + root.forward * (7f * along) + Vector3.up * 1.0f, sign.position), 35f);
             }
         }
 

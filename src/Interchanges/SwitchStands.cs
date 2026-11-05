@@ -13,6 +13,11 @@ namespace Interchanges
     /// side of its track: a rigid half turn about the vertical through the stand's middle, on the
     /// track's centre line. Nothing is mirrored and nothing is recomputed afterwards.
     ///
+    /// The sign goes where the half turn puts it but is not turned: it faces along the track the
+    /// way the stock switch's sign does (a Nexus bug report, 2026-11-04, "Interchange Switch Signs
+    /// Backwards": turned with the stand, the ladder switches' signs faced the other way; owner,
+    /// 2026-11-05: "Looks good. Continue").
+    ///
     /// The stock animator (on the switch) sets the stand's parts by their path under Graphical.
     /// The moved parts go under copies of that path with animators of their own, on the same
     /// controller, played as the stock VisualSwitch plays its own: when the switch is thrown,
@@ -36,8 +41,8 @@ namespace Interchanges
                 throw new InvalidOperationException($"switch {sw.Spec.Id}: its stand's parts or animator are not where the stock switch has them");
             // The turn's axis: the track's centre line, level with the stand's middle.
             var middle = parts.Average(p => root.InverseTransformPoint(p.position).z);
-            Unit(root, graphical, stock, "[stand linkage]", Linkage, middle, sw.Junction, visual.invertDirection, reverse: true);
-            Unit(root, graphical, stock, "[stand sign]", Sign, middle, sw.Junction, visual.invertDirection, reverse: false);
+            Unit(root, graphical, stock, "[stand linkage]", Linkage, middle, sw.Junction, visual.invertDirection, reverse: true, turn: true);
+            Unit(root, graphical, stock, "[stand sign]", Sign, middle, sw.Junction, visual.invertDirection, reverse: false, turn: false);
             var trigger = root.Find("SwitchTrigger");
             if (trigger != null)
             {
@@ -48,21 +53,35 @@ namespace Interchanges
         }
 
         /// <summary>
-        /// A half-turned holder at (0, 0, middle) with a "Graphical" under it standing where the
-        /// stock one stands relative to the turn, so each part keeps its stock local pose and path.
+        /// A holder with a "Graphical" under it, so each part keeps its stock local pose and path
+        /// (the stock animator's). Turned: the holder is half-turned at (0, 0, middle) and its
+        /// Graphical stands where the stock one stands relative to the turn. Not turned (the
+        /// sign): the holder is not turned, and its Graphical is moved so the first part lands
+        /// where the half turn would put it, facing as stock.
         /// </summary>
         private static void Unit(Transform root, Transform graphical, Animator stock, string name, string[] names, float middle,
-            Junction junction, bool invertDirection, bool reverse)
+            Junction junction, bool invertDirection, bool reverse, bool turn)
         {
             var unit = new GameObject(name).transform;
             unit.SetParent(root, false);
-            unit.localPosition = new Vector3(0f, 0f, middle);
-            unit.localRotation = Quaternion.Euler(0f, 180f, 0f);
             var g = new GameObject("Graphical").transform;
             g.SetParent(unit, false);
-            g.localPosition = graphical.localPosition - new Vector3(0f, 0f, middle);
             g.localRotation = graphical.localRotation;
             g.localScale = graphical.localScale;
+            if (turn)
+            {
+                unit.localPosition = new Vector3(0f, 0f, middle);
+                unit.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                g.localPosition = graphical.localPosition - new Vector3(0f, 0f, middle);
+            }
+            else
+            {
+                var pivot = root.InverseTransformPoint(graphical.Find(names[0]).position);
+                var turned = new Vector3(-pivot.x, pivot.y, 2f * middle - pivot.z);
+                unit.localPosition = Vector3.zero;
+                unit.localRotation = Quaternion.identity;
+                g.localPosition = graphical.localPosition + (turned - pivot);
+            }
             foreach (var n in names)
                 graphical.Find(n).SetParent(g, false);
             var animator = unit.gameObject.AddComponent<Animator>();
