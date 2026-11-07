@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 (2026-11-06)
+
+- The yard tracks' job IDs are the interchange's own: WI-A1X to WI-A5X at West Interchange and NEI-A1X to NEI-A5X at Northeast Interchange, so Railroad Contracts can make each interchange a station of its own. A job saved with the old IDs still finds its track.
+
 ## 0.1.4 (2026-11-05)
 
 - The signs on the yard ladder switches face the right way, as on the main line switches.
