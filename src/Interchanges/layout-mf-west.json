@@ -21765,158 +21765,158 @@
    {
     "sprite": "SM-TracksStraight",
     "x": -350,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -300,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -250,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -200,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -150,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -100,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -50,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 0,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 50,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 100,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 150,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 200,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 250,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-ID",
     "x": 0,
-    "y": -100,
+    "y": 100,
     "rot": 0,
     "text": "1"
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -300,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -250,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -200,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -150,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -100,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -50,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 0,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 50,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 100,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 150,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 200,
-    "y": -50,
+    "y": 50,
     "rot": 90
    },
    {
     "sprite": "SM-ID",
     "x": 0,
-    "y": -50,
+    "y": 50,
     "rot": 0,
     "text": "2"
    },
@@ -21984,381 +21984,495 @@
    {
     "sprite": "SM-TracksStraight",
     "x": -200,
-    "y": 50,
+    "y": -50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -150,
-    "y": 50,
+    "y": -50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -100,
-    "y": 50,
+    "y": -50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -50,
-    "y": 50,
+    "y": -50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 0,
-    "y": 50,
+    "y": -50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 50,
-    "y": 50,
+    "y": -50,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 100,
-    "y": 50,
+    "y": -50,
     "rot": 90
    },
    {
     "sprite": "SM-ID",
     "x": 0,
-    "y": 50,
+    "y": -50,
     "rot": 0,
     "text": "4"
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -200,
-    "y": 100,
+    "y": -100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -150,
-    "y": 100,
+    "y": -100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -100,
-    "y": 100,
+    "y": -100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -50,
-    "y": 100,
+    "y": -100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 0,
-    "y": 100,
+    "y": -100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 50,
-    "y": 100,
+    "y": -100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 100,
-    "y": 100,
+    "y": -100,
     "rot": 90
    },
    {
     "sprite": "SM-ID",
     "x": 0,
-    "y": 100,
+    "y": -100,
     "rot": 0,
     "text": "5"
    },
    {
-    "sprite": "SM-TracksSwitchDivergingR",
+    "sprite": "SM-TracksSwitchDivergingL",
     "x": 300,
+    "y": 100,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-Switch",
+    "x": 300,
+    "y": 100,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": 300,
+    "y": 50,
+    "rot": 180
+   },
+   {
+    "sprite": "SM-TracksSwitchDivergingL",
+    "x": 250,
+    "y": 50,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-Switch",
+    "x": 250,
+    "y": 50,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": 250,
+    "y": 0,
+    "rot": 180
+   },
+   {
+    "sprite": "SM-TracksSwitchDivergingL",
+    "x": 200,
+    "y": 0,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-Switch",
+    "x": 200,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": 200,
+    "y": -50,
+    "rot": 180
+   },
+   {
+    "sprite": "SM-TracksSwitchDivergingL",
+    "x": 150,
+    "y": -50,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-Switch",
+    "x": 150,
+    "y": -50,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": 150,
     "y": -100,
-    "rot": 90
-   },
-   {
-    "sprite": "SM-Switch",
-    "x": 300,
-    "y": -100,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": 300,
-    "y": -50,
-    "rot": -90
+    "rot": 180
    },
    {
     "sprite": "SM-TracksSwitchDivergingR",
-    "x": 250,
-    "y": -50,
-    "rot": 90
-   },
-   {
-    "sprite": "SM-Switch",
-    "x": 250,
-    "y": -50,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": 250,
-    "y": 0,
-    "rot": -90
-   },
-   {
-    "sprite": "SM-TracksSwitchDivergingR",
-    "x": 200,
-    "y": 0,
-    "rot": 90
-   },
-   {
-    "sprite": "SM-Switch",
-    "x": 200,
-    "y": 0,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": 200,
-    "y": 50,
-    "rot": -90
-   },
-   {
-    "sprite": "SM-TracksSwitchDivergingR",
-    "x": 150,
-    "y": 50,
-    "rot": 90
-   },
-   {
-    "sprite": "SM-Switch",
-    "x": 150,
-    "y": 50,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": 150,
+    "x": -400,
     "y": 100,
     "rot": -90
    },
    {
-    "sprite": "SM-TracksSwitchDivergingL",
-    "x": -400,
-    "y": -100,
-    "rot": -90
-   },
-   {
     "sprite": "SM-Switch",
     "x": -400,
-    "y": -100,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": -400,
-    "y": -50,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksSwitchDivergingL",
-    "x": -350,
-    "y": -50,
-    "rot": -90
-   },
-   {
-    "sprite": "SM-Switch",
-    "x": -350,
-    "y": -50,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": -350,
-    "y": 0,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksSwitchDivergingL",
-    "x": -300,
-    "y": 0,
-    "rot": -90
-   },
-   {
-    "sprite": "SM-Switch",
-    "x": -300,
-    "y": 0,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": -300,
-    "y": 50,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksSwitchDivergingL",
-    "x": -250,
-    "y": 50,
-    "rot": -90
-   },
-   {
-    "sprite": "SM-Switch",
-    "x": -250,
-    "y": 50,
-    "rot": 0
-   },
-   {
-    "sprite": "SM-TracksDiagonal",
-    "x": -250,
     "y": 100,
     "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": -400,
+    "y": 50,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksSwitchDivergingR",
+    "x": -350,
+    "y": 50,
+    "rot": -90
+   },
+   {
+    "sprite": "SM-Switch",
+    "x": -350,
+    "y": 50,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": -350,
+    "y": 0,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksSwitchDivergingR",
+    "x": -300,
+    "y": 0,
+    "rot": -90
+   },
+   {
+    "sprite": "SM-Switch",
+    "x": -300,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": -300,
+    "y": -50,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksSwitchDivergingR",
+    "x": -250,
+    "y": -50,
+    "rot": -90
+   },
+   {
+    "sprite": "SM-Switch",
+    "x": -250,
+    "y": -50,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": -250,
+    "y": -100,
+    "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": -450,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksEnd",
     "x": -500,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 350,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksSwitchDivergingL",
     "x": 400,
-    "y": -100,
+    "y": 100,
     "rot": -90
    },
    {
     "sprite": "SM-Switch",
     "x": 400,
-    "y": -100,
+    "y": 100,
     "rot": 0
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 450,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 500,
-    "y": -100,
+    "y": 100,
     "rot": 90
    },
    {
     "sprite": "SM-TracksDiagonal",
-    "x": 400,
-    "y": -50,
+    "x": 550,
+    "y": 100,
+    "rot": -90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 550,
+    "y": 50,
     "rot": 0
    },
    {
     "sprite": "SM-TracksStraight",
-    "x": 450,
-    "y": -50,
-    "rot": 90
-   },
-   {
-    "sprite": "SM-TracksStraight",
-    "x": 500,
-    "y": -50,
-    "rot": 90
+    "x": 550,
+    "y": 0,
+    "rot": 0
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 550,
     "y": -50,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 550,
+    "y": -100,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 550,
+    "y": -150,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksDiagonal",
+    "x": 400,
+    "y": 150,
+    "rot": 0
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 450,
+    "y": 150,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 500,
+    "y": 150,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 550,
+    "y": 150,
     "rot": 90
    },
    {
     "sprite": "SM-TracksExit",
     "x": 600,
-    "y": -50,
+    "y": 150,
     "rot": -90
    },
    {
     "sprite": "SM-TracksStraight",
+    "x": -450,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -400,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -350,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -300,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -250,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -200,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -150,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -100,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": -50,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 0,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 50,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 100,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 150,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
+    "x": 200,
+    "y": -200,
+    "rot": 90
+   },
+   {
+    "sprite": "SM-TracksStraight",
     "x": 250,
-    "y": -150,
+    "y": -200,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 300,
-    "y": -150,
+    "y": -200,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 350,
-    "y": -150,
+    "y": -200,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 400,
-    "y": -150,
+    "y": -200,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 450,
-    "y": -150,
+    "y": -200,
     "rot": 90
    },
    {
     "sprite": "SM-TracksStraight",
     "x": 500,
-    "y": -150,
+    "y": -200,
     "rot": 90
    },
    {
-    "sprite": "SM-TracksSwitchDivergingR",
+    "sprite": "SM-TracksSwitchDivergingL",
     "x": 550,
-    "y": -150,
-    "rot": 90
+    "y": -200,
+    "rot": -90
    },
    {
     "sprite": "SM-Switch",
     "x": 550,
-    "y": -150,
+    "y": -200,
     "rot": 0
    },
    {
-    "sprite": "SM-TracksDiagonal",
-    "x": 550,
-    "y": -100,
-    "rot": -90
-   },
-   {
     "sprite": "SM-TracksExit",
-    "x": 200,
-    "y": -150,
+    "x": -500,
+    "y": -200,
     "rot": 90
    },
    {
     "sprite": "SM-TracksExit",
     "x": 600,
-    "y": -150,
+    "y": -200,
     "rot": -90
    },
    {
@@ -22370,11 +22484,11 @@
   ],
   "cells": {
    "MFW-N-0": [
-    13,
+    9,
     21
    ],
    "MFW-N-1": [
-    12,
+    10,
     20
    ],
    "MFW-N-2": [
@@ -22382,15 +22496,15 @@
     19
    ],
    "MFW-N-3": [
-    10,
+    12,
     18
    ],
    "MFW-S-0": [
-    13,
+    9,
     7
    ],
    "MFW-S-1": [
-    12,
+    10,
     8
    ],
    "MFW-S-2": [
@@ -22398,15 +22512,15 @@
     9
    ],
    "MFW-S-3": [
-    10,
+    12,
     10
    ],
    "MFW-F": [
-    13,
+    9,
     23
    ],
    "MFW-R10": [
-    14,
+    15,
     26
    ]
   }
@@ -22424,15 +22538,13 @@
     "sprite": "SM-TracksSwitchDivergingR",
     "x": -675,
     "y": 125,
-    "rot": -180,
-    "sx": -1
+    "rot": 0
    },
    {
     "sprite": "SM-Switch",
     "x": -675,
     "y": 125,
-    "rot": 0,
-    "sx": -1
+    "rot": 0
    },
    {
     "sprite": "SM-TracksDiagonal",

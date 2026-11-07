@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6 (2026-11-07)
+
+- The interchanges' pages in the station booklet match the yards: they drew the yard tracks, main line and tie-in mirrored, so with the Dispatcher license the switches seemed to go the wrong way.
+- On the route map, the West Interchange switch faces the right way: trains heading north from the Machine Factory turn in there.
+
 ## 0.1.5 (2026-11-06)
 
 - The yard tracks' job IDs are the interchange's own: WI-A1X to WI-A5X at West Interchange and NEI-A1X to NEI-A5X at Northeast Interchange, so Railroad Contracts can make each interchange a station of its own. A job saved with the old IDs still finds its track.
