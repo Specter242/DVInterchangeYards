@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 (2026-11-09)
+
+- In multiplayer, players other than the host get the jobs to and from the interchanges, with their booklets.
+
 ## 0.1.6 (2026-11-07)
 
 - The interchanges' pages in the station booklet match the yards: they drew the yard tracks, main line and tie-in mirrored, so with the Dispatcher license the switches seemed to go the wrong way.

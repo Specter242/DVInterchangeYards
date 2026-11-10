@@ -25,12 +25,17 @@ namespace Interchanges
     ///   that asks for these tracks by ID does (the contract mod).
     /// - Each is registered with the yard organizer as the stations register theirs, before saved
     ///   jobs load: a job saved with an interchange track finds it, and its space can be reserved.
+    /// - Each is found by the name a stock track with its ID would have ("[Y]_[WI]_[A-01-X]") as
+    ///   well as by its own: the Multiplayer mod sends a job's tracks to the players by that name,
+    ///   and a player's game looks them up by it (Blaze221, Nexus, 2026-11-08: the players other
+    ///   than the host saw no job booklets, as nearly every contract job uses an interchange track).
     /// </summary>
     internal static class JobTracks
     {
         public const string TrackType = "X";
         private static readonly Dictionary<GameObject, TrackID> byObject = new Dictionary<GameObject, TrackID>();
         private static readonly Dictionary<string, string> byOldId = new Dictionary<string, string>();
+        private static readonly Dictionary<string, GameObject> byStockName = new Dictionary<string, GameObject>();
         private static bool registered;
         public static readonly List<string> Notes = new List<string>();
 
@@ -38,6 +43,7 @@ namespace Interchanges
         {
             byObject.Clear();
             byOldId.Clear();
+            byStockName.Clear();
             registered = false;
             Notes.Clear();
         }
@@ -57,6 +63,7 @@ namespace Interchanges
                 var number = (int.Parse(m.Groups[1].Value) + 1).ToString("00");
                 var id = new TrackID(layout.Code, yard, number, TrackType);
                 byObject[t.gameObject] = id;
+                byStockName[id.RailTrackGameObjectID] = t.gameObject;
                 if (!string.IsNullOrEmpty(station))
                     byOldId[new TrackID(station, layout.Code, number, TrackType).FullID] = id.FullID;
                 Notes.Add($"{t.name}: job track {id.FullID}");
@@ -77,6 +84,17 @@ namespace Interchanges
                     __result = track;
                     Main.Log($"job tracks: a saved job's track {trackId} is {id}");
                 }
+            }
+        }
+
+        /// <summary>A track asked for by the name a stock track with an interchange track's ID would have is that track.</summary>
+        [HarmonyPatch(typeof(RailTrackRegistryBase), nameof(RailTrackRegistryBase.GetTrackWithName))]
+        private static class ByStockName
+        {
+            private static void Postfix(string trackName, ref RailTrack __result)
+            {
+                if (__result == null && trackName != null && byStockName.TryGetValue(trackName, out var go) && go != null)
+                    __result = go.GetComponent<RailTrack>();
             }
         }
 

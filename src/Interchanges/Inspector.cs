@@ -422,6 +422,19 @@ namespace Interchanges
             }
             if (expected.Count != Builder.Built.Sum(l => l.Tracks.Count(t => System.Text.RegularExpressions.Regex.IsMatch(t.Name, @" yard \d+$"))))
                 Problem($"job tracks: {expected.Count} assigned");
+            // Found by the name a stock track with its ID would have, as the Multiplayer mod's players look a job's tracks up.
+            var registry = SingletonBehaviour<RailTrackRegistryBase>.Instance;
+            foreach (var id in JobTracks.Ids)
+            {
+                var byName = registry != null ? registry.GetTrackWithName(id.RailTrackGameObjectID) : null;
+                Line($"job track {id.FullID} by the name {id.RailTrackGameObjectID}: {(byName == null ? "not found" : byName.name)}");
+                if (byName == null || byName.LogicTrack()?.ID?.FullID != id.FullID)
+                    Problem($"job track {id.FullID} is not found by the name {id.RailTrackGameObjectID}");
+            }
+            // A stock track is still found by its own name.
+            var stock = registry?.AllTracks.FirstOrDefault(t => t != null && t.name.StartsWith("[Y]_", System.StringComparison.Ordinal));
+            if (stock != null && registry.GetTrackWithName(stock.name) != stock)
+                Problem($"the stock track {stock.name} is not found by its name");
         }
 
         private void Structure()
