@@ -142,16 +142,36 @@ namespace Interchanges
         /// copy wakes, as the stock one did. Left in, the copy's controls fail to add their
         /// implementation ("Can't add 'ButtonNonVR'... already added"), and the pointer finds the
         /// copied grab handler first, which nothing listens to: the kiosk's buttons do nothing.
+        ///
+        /// In VR a button's implementation (ButtonVRTK) adds other parts: the VR interactable, the
+        /// tele-grab target, and, unless the button has a touch behaviour of its own, a touch
+        /// behaviour with a helper object beside the button for its direction. Left in, the copy's
+        /// button adds a second interactable and tele-grab target behind the copied ones; a hand
+        /// or the tele-grab finds the copied ones first, which nothing listens to (a Nexus comment,
+        /// audit of 2026-11-12: the interchange kiosks did not answer to touch in VR). A switch's lever is
+        /// such a button too (VisualSwitch), and its copy goes through here.
         /// </summary>
         internal static int ResetControls(GameObject office)
         {
             var parts = new List<Component>();
+            var helpers = new List<GameObject>();
             foreach (var spec in office.GetComponentsInChildren<DV.CabControls.Spec.ControlSpec>(true))
             {
                 var go = spec.gameObject;
                 parts.AddRange(go.GetComponents<DV.CabControls.ControlImplBase>());
                 parts.AddRange(go.GetComponents<DV.Interaction.AGrabHandler>());
                 parts.AddRange(go.GetComponents<MonoBehaviour>().Where(IsAreaDetector));
+                foreach (var part in go.GetComponents<MonoBehaviour>())
+                {
+                    var kind = part != null ? part.GetType().FullName : null;
+                    if (VrButtonParts.Contains(kind))
+                        parts.Add(part);
+                    else if (kind == VrTouch && MadeTouchHelper(part) is Transform helper)
+                    {
+                        parts.Add(part);
+                        helpers.Add(helper.gameObject);
+                    }
+                }
                 if (spec is DV.CabControls.Spec.Button button)
                 {
                     if (button.useJoints)
@@ -166,10 +186,40 @@ namespace Interchanges
                 parts.AddRange(localize.GetComponents<I2.Loc.Localize>());
                 parts.AddRange(localize.GetComponents<I2.Loc.LocalizationParamsManager>());
             }
-            // Implementations first: nothing requires them, and they hold the handlers.
-            foreach (var part in parts.Distinct().OrderBy(p => p is DV.CabControls.ControlImplBase ? 0 : p is Joint ? 1 : 2))
+            // The touch helpers before their behaviours, which would otherwise destroy them late.
+            foreach (var helper in helpers.Distinct())
+                Object.DestroyImmediate(helper);
+            // Implementations first: nothing requires them, and they hold the handlers. The VR
+            // interactable last, after the parts that work through it.
+            foreach (var part in parts.Distinct().OrderBy(p => p is DV.CabControls.ControlImplBase ? 0 : p is Joint ? 1
+                                                                : p.GetType().FullName == VrInteractable ? 3 : 2))
                 Object.DestroyImmediate(part);
-            return parts.Count;
+            return parts.Count + helpers.Count;
+        }
+
+        /// <summary>The VR interactable every VR control adds to itself as it wakes (the game's type, by name: this mod does not reference VRTK).</summary>
+        internal const string VrInteractable = "DV.CabControls.VRTK.VRTK_ControlImplBaseInteractableObject";
+
+        /// <summary>What a VR button (ButtonVRTK) always adds to itself as it wakes: the interactable and the tele-grab target.</summary>
+        internal static readonly string[] VrButtonParts = { VrInteractable, "DV.VR.TelegrabbableButton" };
+
+        /// <summary>The touch behaviour a VR button makes for itself when it has none of its own (SpeedZoneControlTouchBehaviour.Setup).</summary>
+        internal const string VrTouch = "DV.CabControls.SpeedZoneControlTouchBehaviour";
+
+        /// <summary>The helper object that touch behaviour takes its direction from, made beside the button.</summary>
+        internal const string VrTouchHelper = "[interaction direction]";
+
+        /// <summary>
+        /// The helper of a touch behaviour the button made for itself, or null for a behaviour the
+        /// office came with, which stays (the button uses the one it finds). The made one is
+        /// known by its helper: an empty object of that name beside the button.
+        /// </summary>
+        private static Transform MadeTouchHelper(MonoBehaviour touch)
+        {
+            var direction = touch.GetType().GetField("direction")?.GetValue(touch) as Transform;
+            return direction != null && direction.name == VrTouchHelper && direction.parent == touch.transform.parent
+                   && direction.childCount == 0 && direction.GetComponents<Component>().Length == 1
+                ? direction : null;
         }
 
         /// <summary>The components other mods add to a kiosk as it wakes, by type name (this mod references neither).</summary>

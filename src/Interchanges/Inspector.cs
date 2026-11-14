@@ -281,6 +281,7 @@ namespace Interchanges
                 }
             if (!quick)
                 Try("office check", OfficeCheck);
+            Try("VR parts reset", VrReset);
             foreach (var layout in Main.Layouts)
                 foreach (var view in layout.Views)
                 {
@@ -515,6 +516,81 @@ namespace Interchanges
                     Problem($"throwing junction {name} threw: {e.GetBaseException().Message}");
                 }
             }
+        }
+
+        /// <summary>
+        /// The stale VR parts of a copied button (Offices.ResetControls), checked on a flat screen,
+        /// where no control has them: a button is made up asleep with the parts a VR button adds
+        /// to itself, and reset. The game's own types are used, so a renamed type shows here.
+        /// Beside it a button with a touch behaviour of its own, which must stay. Then the
+        /// controls of the copies themselves: the reset knows a button's VR parts only, so any
+        /// other kind of control in a copied office or switch is a problem.
+        /// </summary>
+        private void VrReset()
+        {
+            var game = typeof(DV.CabControls.ControlImplBase).Assembly;
+            var touchType = game.GetType(Offices.VrTouch, true);
+            var holder = new GameObject("[inspect VR reset]");
+            holder.SetActive(false);
+            try
+            {
+                var panel = new GameObject("panel");
+                panel.transform.SetParent(holder.transform, false);
+                GameObject Button(string name)
+                {
+                    var go = new GameObject(name);
+                    go.transform.SetParent(panel.transform, false);
+                    go.AddComponent<DV.CabControls.Spec.Button>();
+                    return go;
+                }
+                string Parts(GameObject go) => string.Join(",", go.GetComponents<Component>().Select(c => c == null ? "missing" : c.GetType().Name));
+
+                // As a VR button leaves itself: the interactable, the tele-grab target, the touch behaviour and its helper.
+                var made = Button("made");
+                foreach (var name in Offices.VrButtonParts)
+                    made.AddComponent(game.GetType(name, true));
+                touchType.GetMethod("Setup", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                    .Invoke(null, new object[] { made });
+                // As an office might come: a touch behaviour of the button's own, with its own direction.
+                var own = Button("own");
+                var ownTouch = own.AddComponent(touchType);
+                var ownDirection = new GameObject("direction");
+                ownDirection.transform.SetParent(own.transform, false);
+                touchType.GetField("direction").SetValue(ownTouch, ownDirection.transform);
+
+                var before = Parts(made);
+                var helperBefore = panel.transform.Find(Offices.VrTouchHelper) != null;
+                var reset = Offices.ResetControls(holder);
+                Line($"VR reset: a made-up VR button [{before}]{(helperBefore ? " with its touch helper" : "")} is left [{Parts(made)}]; {reset} part(s) reset");
+                if (!helperBefore || !before.Contains("SpeedZoneControlTouchBehaviour") || !before.Contains("TelegrabbableButton"))
+                    Problem("VR reset: the made-up VR button lacked its parts, so the check checked nothing");
+                if (Parts(made) != "Transform,Button")
+                    Problem($"VR reset: the button keeps [{Parts(made)}]");
+                if (panel.transform.Find(Offices.VrTouchHelper) != null)
+                    Problem("VR reset: the touch helper object is left");
+                if (reset != 4)
+                    Problem($"VR reset: {reset} part(s) reset, expected 4");
+                if (own.GetComponent(touchType) == null || own.transform.Find("direction") == null)
+                    Problem("VR reset: a button's own touch behaviour was taken out");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(holder);
+            }
+
+            var copies = Offices.Built.Where(b => b.Office != null).Select(b => (Name: "office " + b.Spec.Name, Top: b.Office.transform))
+                .Concat(Builder.OurJunctions.Select(j => (Name: "switch " + (j.transform.parent != null ? j.transform.parent.name : j.name),
+                                                           Top: j.transform.parent != null ? j.transform.parent : j.transform))).ToList();
+            var kinds = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            foreach (var (name, top) in copies)
+                foreach (var spec in top.GetComponentsInChildren<DV.CabControls.Spec.ControlSpec>(true))
+                {
+                    var kind = spec.GetType().Name;
+                    kinds[kind] = kinds.TryGetValue(kind, out var n) ? n + 1 : 1;
+                    if (!(spec is DV.CabControls.Spec.Button))
+                        Problem($"VR reset: {name} has a {kind} control ({spec.name}); only a button's VR parts are reset");
+                }
+            Line($"VR reset: controls in {copies.Count} copies (offices and switches): {string.Join(", ", kinds.Select(k => $"{k.Value} {k.Key}"))}");
         }
 
         /// <summary>A switch's parts, as SwitchStands leaves them: the sign's holder, the sign, its stand's base; moved or not.</summary>

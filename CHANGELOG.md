@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8 (2026-11-12)
+
+- In VR, the kiosks at the interchange offices answer to touch, like a station's. The yard switches' levers carried the same leftover parts and are set right with them.
+
 ## 0.1.7 (2026-11-09)
 
 - In multiplayer, players other than the host get the jobs to and from the interchanges, with their booklets.
