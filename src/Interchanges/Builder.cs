@@ -131,7 +131,12 @@ namespace Interchanges
         {
             if (registry == null || building || ReferenceEquals(builtFor, registry))
                 return;
-            if (GameObject.Find("[railway]") == null)
+            // Every read of the registry's track lists comes here; until the railway exists each one
+            // looks for it, so that look is timed (counted) to show if it ever repeats in play.
+            var looked = Perf.Start();
+            var railway = GameObject.Find("[railway]");
+            Perf.Stop("build: look for the railway", looked);
+            if (railway == null)
                 return;
             building = true;
             builtFor = registry;

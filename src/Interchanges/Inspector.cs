@@ -42,6 +42,7 @@ namespace Interchanges
         private static bool requested, quitAfter, continued, started;
         private static bool saveTest, reloadTest;   // a real save of cars on our track, then a fresh game loading it
         private static bool saveTestOnly, vanillaTest;
+        private static bool driveTest;   // drive across the map timing every frame (with "vanilla": without the mod)
         private static bool quick;
         private static HashSet<string> quickViews = new HashSet<string> { "r10-switch", "portal-in", "ime-r18-switch", "ime-portal-in" };
 
@@ -76,6 +77,10 @@ namespace Interchanges
                 saveTestOnly = text.IndexOf("savetestonly", StringComparison.OrdinalIgnoreCase) >= 0;
                 vanillaTest = text.IndexOf("vanilla", StringComparison.OrdinalIgnoreCase) >= 0;
                 quick = text.IndexOf("quick", StringComparison.OrdinalIgnoreCase) >= 0;
+                driveTest = text.IndexOf("drive", StringComparison.OrdinalIgnoreCase) >= 0;
+                var routeLine = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("route:", StringComparison.Ordinal));
+                if (routeLine != null)
+                    DriveRoute = routeLine.Substring("route:".Length).Split(',').Select(r => r.Trim()).Where(r => r.Length > 0).ToArray();
                 var views = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("views:", StringComparison.Ordinal));
                 if (views != null)
                     quickViews = new HashSet<string>(views.Substring("views:".Length).Split(',').Select(v => v.Trim()).Where(v => v.Length > 0));
@@ -215,6 +220,16 @@ namespace Interchanges
             {
                 yield return new WaitForSeconds(8f);
                 FaultCheck();
+                if (quitAfter)
+                {
+                    yield return new WaitForSeconds(2f);
+                    Application.Quit();
+                }
+                yield break;
+            }
+            if (driveTest)
+            {
+                yield return Drive();
                 if (quitAfter)
                 {
                     yield return new WaitForSeconds(2f);
@@ -1264,6 +1279,164 @@ namespace Interchanges
         /// moved, as a player might, and the game saved again. Our record of that car is now stale,
         /// and the next launch with the mod must leave it where this save has it.
         /// </summary>
+        // ------------------------------------------------------------ drive (frame times across the map)
+
+        // Through the middle, both interchanges and the far corners (Sayori, 2026-11-19: "freezes
+        // for like 2 seconds, same everywhere"). An interchange is named by its code (its office).
+        private static string[] DriveRoute = { "SM", "NEI", "IME", "GF", "HB", "CS", "SW", "WI", "MF" };
+        private const float DriveSpeed = 33f;    // m/s, about 120 km/h: a fast train
+        private const float DriveStep = 0.5f;    // s between the player's moves
+        private const float LongFrameMs = 250f;  // a frame this long is logged on its own line
+
+        /// <summary>
+        /// Moves the player across the map at a train's speed, in straight lines between the
+        /// route's places, and times every frame: each one over <see cref="LongFrameMs"/> with
+        /// where it was, this mod's own work in it (Perf), the garbage collections, terrain
+        /// tiles and scenes loaded in it; the memory every 30 s; one save halfway, timed. With
+        /// "vanilla" the mod changes nothing (Main installs only the inspector), for the stock
+        /// game's own frame times on the same drive.
+        /// </summary>
+        private IEnumerator Drive()
+        {
+            log = new StreamWriter(Path.Combine(Folder, "inspect.log"), false);
+            Line($"inspection {DateTime.Now:yyyy-MM-dd HH:mm:ss}: drive across the map " +
+                 (vanillaTest ? "WITHOUT the mod (vanilla: nothing built or patched)" : "with the mod") +
+                 $"; {SystemInfo.processorType}, {SystemInfo.processorCount} threads, {SystemInfo.systemMemorySize} MB; " +
+                 $"{SystemInfo.graphicsDeviceName}, {SystemInfo.graphicsMemorySize} MB; quality {QualitySettings.GetQualityLevel()}");
+            yield return new WaitForSeconds(15f);
+
+            var route = new List<(string Id, Vector3 Map)>();
+            foreach (var id in DriveRoute)
+            {
+                var layout = Main.Layouts.FirstOrDefault(l => l.Code == id);
+                if (layout != null && layout.Offices.Count > 0)
+                {
+                    route.Add((id, Frames.World(Root, Vec.Of(layout.Offices[0].Position)) - WorldMover.currentMove));
+                    continue;
+                }
+                var station = StationController.allStations?.FirstOrDefault(s => s != null && s.stationInfo?.YardID == id);
+                if (station == null)
+                {
+                    Line($"drive: no station {id} on the route; left out");
+                    continue;
+                }
+                route.Add((id, station.transform.position - WorldMover.currentMove));
+            }
+            var legs = new List<float>();
+            for (var i = 1; i < route.Count; i++)
+                legs.Add(Flat(route[i].Map - route[i - 1].Map).magnitude);
+            var total = legs.Sum();
+            Line($"drive: {string.Join(" > ", route.Select(r => r.Id))}, {total / 1000f:F1} km at {DriveSpeed} m/s " +
+                 $"({total / DriveSpeed / 60f:F0} min)");
+
+            var tiles = 0;
+            var scenes = 0;
+            void OnTile(TerrainData d, Vector2Int c) => tiles++;
+            void OnScene(UnityEngine.SceneManagement.Scene s, UnityEngine.SceneManagement.LoadSceneMode m) => scenes++;
+            TerrainGrid.TerrainDataLoaded += OnTile;
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnScene;
+
+            var buckets = new[] { 50, 100, 250, 500, 1000, 2000 };
+            var counts = new int[buckets.Length];
+            int frames = 0, longFrames = 0, lastGc = GC.CollectionCount(0), lastTiles = 0, lastScenes = 0;
+            int longWithGc = 0, longWithTiles = 0, longWithScenes = 0;
+            double worstMs = 0, modMsInLong = 0, longMs = 0;
+            var start = Time.unscaledTime;
+            float lastMove = -1f, nextMemory = 0f;
+            var saved = false;
+            var ground = route.Count > 0 ? route[0].Map.y : 0f;
+            (double Ms, string Calls, int Gcs, int Tiles, int Scenes) previous = (0, null, 0, 0, 0);
+            var at = route.Count > 0 ? route[0].Map : Vector3.zero;
+            Perf.TakeFrame();
+            while (route.Count >= 2)
+            {
+                yield return null;
+                var now = Time.unscaledTime - start;
+                var ms = Time.unscaledDeltaTime * 1000.0;
+                frames++;
+                // The game times a frame as the next one starts, so this frame's delta is the
+                // previous frame's length, and the work that made it long was taken last time round.
+                var (modMs, calls, gcs, tileLoads, sceneLoads) = previous;
+                var (takenMs, takenCalls) = Perf.TakeFrame();
+                var gc = GC.CollectionCount(0);
+                previous = (takenMs, takenCalls, gc - lastGc, tiles - lastTiles, scenes - lastScenes);
+                lastGc = gc;
+                lastTiles = tiles;
+                lastScenes = scenes;
+                for (var b = 0; b < buckets.Length; b++)
+                    if (ms >= buckets[b])
+                        counts[b]++;
+                worstMs = Math.Max(worstMs, ms);
+                if (ms >= LongFrameMs && frames > 2)
+                {
+                    longFrames++;
+                    longMs += ms;
+                    modMsInLong += modMs;
+                    if (gcs > 0) longWithGc++;
+                    if (tileLoads > 0) longWithTiles++;
+                    if (sceneLoads > 0) longWithScenes++;
+                    Line($"drive: {now:F0} s, frame {ms:F0} ms at ({at.x:F0}, {at.z:F0}) tile {Mathf.FloorToInt(at.x / 512f)},{Mathf.FloorToInt(at.z / 512f)}; " +
+                         $"mod work {modMs:F0} ms{(calls != null ? " [" + calls + "]" : "")}; GC {gcs}; tiles {tileLoads}; scenes {sceneLoads}");
+                }
+                if (now >= nextMemory)
+                {
+                    nextMemory += 30f;
+                    Line($"drive: {now:F0} s, at ({at.x:F0}, {at.z:F0}); mono {UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong() / 1048576} of " +
+                         $"{UnityEngine.Profiling.Profiler.GetMonoHeapSizeLong() / 1048576} MB, all {UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong() / 1048576} MB; " +
+                         $"GC {gc}; tiles loaded {tiles}; scenes {scenes}; frames {frames}");
+                }
+                var travelled = now * DriveSpeed;
+                if (!saved && travelled >= total / 2f)
+                {
+                    saved = true;
+                    var t0 = System.Diagnostics.Stopwatch.StartNew();
+                    var ok = false;
+                    Try("drive: save", () => ok = SingletonBehaviour<SaveGameManager>.Instance.Save(SaveType.Auto) != null);
+                    Line($"drive: {now:F0} s, a save took {t0.ElapsedMilliseconds} ms ({(ok ? "saved" : "not saved")})");
+                }
+                if (travelled >= total)
+                    break;
+                if (now - lastMove < DriveStep)
+                    continue;
+                lastMove = now;
+                // Where the route is after this far, in the map frame.
+                var leg = 0;
+                var along = travelled;
+                while (leg < legs.Count - 1 && along > legs[leg])
+                {
+                    along -= legs[leg];
+                    leg++;
+                }
+                var from = route[leg].Map;
+                var to = route[leg + 1].Map;
+                var dir = Flat(to - from).normalized;
+                at = from + dir * Mathf.Min(along, legs[leg]);
+                var world = at + WorldMover.currentMove;
+                if (Physics.Raycast(new Vector3(world.x, world.y + 2000f, world.z), Vector3.down, out var hit, 5000f, LayerMask.GetMask("Terrain")))
+                    ground = hit.point.y - WorldMover.currentMove.y;
+                at.y = ground;
+                PlayerManager.TeleportPlayer(new Vector3(world.x, ground + WorldMover.currentMove.y + 2f, world.z),
+                                             dir.sqrMagnitude > 0 ? Quaternion.LookRotation(dir, Vector3.up) : Quaternion.identity, null, false);
+            }
+            TerrainGrid.TerrainDataLoaded -= OnTile;
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnScene;
+
+            var seconds = Time.unscaledTime - start;
+            Line($"drive: done in {seconds:F0} s, {frames} frames ({frames / Math.Max(1f, seconds):F0} per second on average), worst {worstMs:F0} ms");
+            Line("drive: frames at or over " + string.Join(", ", buckets.Select((b, i) => $"{b} ms: {counts[i]}")));
+            Line($"drive: {longFrames} frame(s) of {LongFrameMs:F0} ms or more, {longMs / 1000:F1} s in all, the mod's work {modMsInLong:F0} ms of it; " +
+                 $"with a garbage collection {longWithGc}, a terrain tile loaded {longWithTiles}, a scene loaded {longWithScenes}");
+            Line($"drive: {tiles} terrain tile load(s), {scenes} scene load(s), {GC.CollectionCount(0)} garbage collection(s) since the game started");
+            foreach (var r in Perf.Report())
+                Line("drive: mod work: " + r);
+            LogReport();
+            Line($"INSPECTION DONE: {problems} problem(s)");
+            log.Dispose();
+            log = null;
+        }
+
+        private static Vector3 Flat(Vector3 v) => new Vector3(v.x, 0f, v.z);
+
         private IEnumerator Vanilla()
         {
             var problemsHere = 0;

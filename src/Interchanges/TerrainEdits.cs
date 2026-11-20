@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using DV.TerrainSystem;
@@ -65,7 +66,10 @@ namespace Interchanges
                     works.Add(w);
                 }
             if (works.Count > 0)
+            {
                 TerrainGrid.TerrainDataLoaded += OnLoaded;
+                PlanAhead();
+            }
             Main.Log($"terrain: {works.Count} earthwork(s)");
         }
 
@@ -102,6 +106,7 @@ namespace Interchanges
         {
             if (data == null || Builder.Built.Count == 0)
                 return;
+            ReportPlanning();
             try
             {
                 Apply(data, coord);
@@ -112,56 +117,252 @@ namespace Interchanges
             }
         }
 
-        private static void Apply(TerrainData data, Vector2Int coord)
+        // ------------------------------------------------------------ plans
+
+        /// <summary>
+        /// One bed's share of one tile, worked out once: the heightmap region it may touch, the
+        /// samples there within its reach with their distance from its centerline and the
+        /// formation height, or the splat texels it paints with their weight. None of that
+        /// depends on the tile's own heights, so it is planned off the game's thread as the mod
+        /// loads, and a tile's load only applies it. Finding each sample's nearest bed while the
+        /// game waited took 0.3 to 1.5 s per tile near a yard, each time the tile streamed in
+        /// (a drive across the map in the game, 2026-11-19; Sayori, 2026-11-19:
+        /// "freezes for like 2 seconds").
+        /// </summary>
+        private sealed class Share
         {
-            var size = data.size;
-            var res = data.heightmapResolution;
-            var step = size.x / (res - 1);
-            float ox = coord.x * size.x, oz = coord.y * size.z;
-            var changed = 0;
+            public Work Work;
+            public int J0, I0, Width;
+            public int[] Samples;          // heights: row * Width + column in the region
+            public float[] Dist, Formation;
+            public int[] Texels;           // paint: row * alphamap resolution + column
+            public float[] Weight;
+        }
+
+        private sealed class TilePlan
+        {
+            public float SizeX, SizeZ;
+            public int Res, AlphaRes;
+            public List<Share> Heights = new List<Share>();
+            public List<Share> Paint = new List<Share>();
+
+            public bool HeightsFit(TerrainData data) => data.size.x == SizeX && data.size.z == SizeZ && data.heightmapResolution == Res;
+        }
+
+        // The stock tiles: 512 m a side, 513 height samples and 64 splat texels across.
+        private const float TileSize = 512f;
+        private const int TileRes = 513, TileAlphaRes = 64;
+
+        private static readonly ConcurrentDictionary<long, TilePlan> plans = new ConcurrentDictionary<long, TilePlan>();
+        private static int planning, plannedAhead;
+        private static long planningTicks;
+        private static readonly System.Diagnostics.Stopwatch planningClock = new System.Diagnostics.Stopwatch();
+        private static string planFailure;
+        private static bool planReported;
+
+        private static long Key(Vector2Int coord) => ((long)coord.x << 32) ^ (uint)coord.y;
+
+        /// <summary>Plans every tile a bed reaches, on the thread pool, before the world loads.</summary>
+        private static void PlanAhead()
+        {
+            var tiles = new HashSet<Vector2Int>();
+            foreach (var w in works)
+                for (var tx = (int)Math.Floor((w.MinX - w.Margin) / TileSize); tx <= (int)Math.Floor((w.MaxX + w.Margin) / TileSize); tx++)
+                    for (var tz = (int)Math.Floor((w.MinZ - w.Margin) / TileSize); tz <= (int)Math.Floor((w.MaxZ + w.Margin) / TileSize); tz++)
+                        tiles.Add(new Vector2Int(tx, tz));
+            planning = tiles.Count;
+            planningClock.Start();
+            foreach (var tile in tiles)
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    var started = System.Diagnostics.Stopwatch.GetTimestamp();
+                    try
+                    {
+                        plans.TryAdd(Key(tile), Plan(tile, TileSize, TileSize, TileRes, TileAlphaRes));
+                        System.Threading.Interlocked.Increment(ref plannedAhead);
+                    }
+                    catch (Exception e)
+                    {
+                        planFailure = $"tile {tile}: {e}";
+                    }
+                    finally
+                    {
+                        System.Threading.Interlocked.Add(ref planningTicks, System.Diagnostics.Stopwatch.GetTimestamp() - started);
+                        if (System.Threading.Interlocked.Decrement(ref planning) == 0)
+                            planningClock.Stop();
+                    }
+                });
+        }
+
+        /// <summary>Says once, on the game's thread, how the planning ahead went.</summary>
+        private static void ReportPlanning()
+        {
+            if (planReported || System.Threading.Volatile.Read(ref planning) > 0)
+                return;
+            planReported = true;
+            var cpu = System.Threading.Interlocked.Read(ref planningTicks) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            Main.Log($"terrain: {plannedAhead} tile(s) planned off the game's thread in {planningClock.ElapsedMilliseconds} ms ({cpu:F0} ms of work)");
+            if (planFailure != null)
+                Main.Error($"terrain: planning ahead failed for {planFailure}; that tile is planned as it loads");
+        }
+
+        /// <summary>A tile's plan for its size and resolutions: every bed's share, built or not.</summary>
+        private static TilePlan Plan(Vector2Int coord, float sizeX, float sizeZ, int res, int alphaRes)
+        {
+            var plan = new TilePlan { SizeX = sizeX, SizeZ = sizeZ, Res = res };
+            var step = sizeX / (res - 1);
+            float ox = coord.x * sizeX, oz = coord.y * sizeZ;
+            var samples = new List<int>();
+            var dists = new List<float>();
+            var formations = new List<float>();
             foreach (var w in works)
             {
-                // Only the beds of layouts that were built.
-                if (!Builder.Built.Contains(w.Layout))
-                    continue;
-                float x0 = Math.Max(ox, w.MinX - w.Margin), x1 = Math.Min(ox + size.x, w.MaxX + w.Margin);
-                float z0 = Math.Max(oz, w.MinZ - w.Margin), z1 = Math.Min(oz + size.z, w.MaxZ + w.Margin);
+                float x0 = Math.Max(ox, w.MinX - w.Margin), x1 = Math.Min(ox + sizeX, w.MaxX + w.Margin);
+                float z0 = Math.Max(oz, w.MinZ - w.Margin), z1 = Math.Min(oz + sizeZ, w.MaxZ + w.Margin);
                 if (x0 > x1 || z0 > z1)
                     continue;
                 int j0 = Mathf.Clamp((int)Math.Floor((x0 - ox) / step), 0, res - 1), j1 = Mathf.Clamp((int)Math.Ceiling((x1 - ox) / step), 0, res - 1);
                 int i0 = Mathf.Clamp((int)Math.Floor((z0 - oz) / step), 0, res - 1), i1 = Mathf.Clamp((int)Math.Ceiling((z1 - oz) / step), 0, res - 1);
                 int width = j1 - j0 + 1, height = i1 - i0 + 1;
-                var heights = data.GetHeights(j0, i0, width, height);
-                var any = false;
+                samples.Clear();
+                dists.Clear();
+                formations.Clear();
                 for (var i = 0; i < height; i++)
                     for (var j = 0; j < width; j++)
                     {
                         float x = ox + (j0 + j) * step, z = oz + (i0 + i) * step;
                         if (!Nearest(w, x, z, out var d, out var formation))
                             continue;
-                        var orig = heights[i, j] * size.y;
-                        float target;
+                        samples.Add(i * width + j);
+                        dists.Add(d);
+                        formations.Add(formation);
+                    }
+                if (samples.Count > 0)
+                    plan.Heights.Add(new Share { Work = w, J0 = j0, I0 = i0, Width = width, Samples = samples.ToArray(), Dist = dists.ToArray(), Formation = formations.ToArray() });
+            }
+            PlanPaint(plan, coord, alphaRes);
+            return plan;
+        }
+
+        /// <summary>The splat texels each painted bed reaches on a tile, with the station ground's weight there.</summary>
+        private static void PlanPaint(TilePlan plan, Vector2Int coord, int alphaRes)
+        {
+            var paint = new List<Share>();
+            var texel = plan.SizeX / alphaRes;
+            float ox = coord.x * plan.SizeX, oz = coord.y * plan.SizeZ;
+            var reach = PaintOuter;
+            var texels = new List<int>();
+            var weights = new List<float>();
+            foreach (var w in works)
+            {
+                if (!w.Spec.Paint)
+                    continue;
+                if (w.MaxX + w.Spec.HalfWidth + reach < ox || w.MinX - w.Spec.HalfWidth - reach > ox + plan.SizeX ||
+                    w.MaxZ + w.Spec.HalfWidth + reach < oz || w.MinZ - w.Spec.HalfWidth - reach > oz + plan.SizeZ)
+                    continue;
+                texels.Clear();
+                weights.Clear();
+                for (var i = 0; i < alphaRes; i++)
+                    for (var j = 0; j < alphaRes; j++)
+                    {
+                        float x = ox + (j + 0.5f) * texel, z = oz + (i + 0.5f) * texel;
+                        if (!Nearest(w, x, z, out var d, out _))
+                            continue;
                         var beyond = d - w.Spec.HalfWidth;
+                        var weight = beyond <= PaintInner ? 1f : Mathf.Clamp01(1f - (beyond - PaintInner) / (PaintOuter - PaintInner));
+                        // A texel's own weight is never below 0, so one this light is never raised.
+                        if (weight <= 1e-3f)
+                            continue;
+                        texels.Add(i * alphaRes + j);
+                        weights.Add(weight);
+                    }
+                if (texels.Count > 0)
+                    paint.Add(new Share { Work = w, Texels = texels.ToArray(), Weight = weights.ToArray() });
+            }
+            plan.Paint = paint;
+            plan.AlphaRes = alphaRes;
+        }
+
+        /// <summary>The tile's plan, made now (and kept for its next load) if none fits it yet.</summary>
+        private static TilePlan PlanFor(TerrainData data, Vector2Int coord)
+        {
+            if (!plans.TryGetValue(Key(coord), out var plan) || !plan.HeightsFit(data))
+            {
+                var started = Perf.Start();
+                plan = Plan(coord, data.size.x, data.size.z, data.heightmapResolution, data.alphamapResolution);
+                plans[Key(coord)] = plan;
+                Perf.Stop("terrain plan made as the tile loaded", started, $"tile {coord.x},{coord.y}");
+            }
+            else if (plan.AlphaRes != data.alphamapResolution)
+            {
+                var started = Perf.Start();
+                PlanPaint(plan, coord, data.alphamapResolution);
+                Perf.Stop("terrain paint plan made as the tile loaded", started, $"tile {coord.x},{coord.y}");
+            }
+            return plan;
+        }
+
+        // ------------------------------------------------------------ applying a plan
+
+        /// <summary>
+        /// Shapes a tile by its plan: its heights read once over the region the built beds reach,
+        /// each bed applied in turn over what the beds before it left (as each bed once read the
+        /// tile after the last one's edit), and written back once.
+        /// </summary>
+        private static void Apply(TerrainData data, Vector2Int coord)
+        {
+            var plan = PlanFor(data, coord);
+            var size = data.size;
+            var changed = 0;
+            var started = Perf.Start();
+            var shares = plan.Heights.Where(s => Builder.Built.Contains(s.Work.Layout)).ToList();
+            if (shares.Count > 0)
+            {
+                int uj0 = int.MaxValue, ui0 = int.MaxValue, uj1 = int.MinValue, ui1 = int.MinValue;
+                foreach (var s in shares)
+                {
+                    var rows = (s.Samples[s.Samples.Length - 1] / s.Width) + 1;
+                    uj0 = Math.Min(uj0, s.J0);
+                    ui0 = Math.Min(ui0, s.I0);
+                    uj1 = Math.Max(uj1, s.J0 + s.Width - 1);
+                    ui1 = Math.Max(ui1, s.I0 + rows - 1);
+                }
+                var heights = data.GetHeights(uj0, ui0, uj1 - uj0 + 1, ui1 - ui0 + 1);
+                foreach (var s in shares)
+                {
+                    var spec = s.Work.Spec;
+                    for (var k = 0; k < s.Samples.Length; k++)
+                    {
+                        int i = s.I0 - ui0 + s.Samples[k] / s.Width, j = s.J0 - uj0 + s.Samples[k] % s.Width;
+                        var orig = heights[i, j] * size.y;
+                        var formation = s.Formation[k];
+                        float target;
+                        var beyond = s.Dist[k] - spec.HalfWidth;
                         if (beyond <= 0) target = formation;
-                        else if (orig > formation) target = Math.Min(orig, formation + beyond / w.Spec.Cut);
-                        else target = Math.Max(orig, formation - beyond / w.Spec.Fill);
+                        else if (orig > formation) target = Math.Min(orig, formation + beyond / spec.Cut);
+                        else target = Math.Max(orig, formation - beyond / spec.Fill);
                         if (Math.Abs(target - orig) > 0.005f)
                         {
                             heights[i, j] = target / size.y;
-                            any = true;
                             changed++;
                         }
                     }
-                if (any)
-                    data.SetHeightsDelayLOD(j0, i0, heights);
+                }
+                if (changed > 0)
+                    data.SetHeightsDelayLOD(uj0, ui0, heights);
             }
+            Perf.Stop("terrain heights", started, $"tile {coord.x},{coord.y}, {changed} samples changed");
             if (changed > 0)
             {
+                started = Perf.Start();
                 data.SyncHeightmap();
+                Perf.Stop("terrain heightmap sync", started, $"tile {coord.x},{coord.y}");
                 TilesEdited++;
                 SamplesChanged += changed;
             }
-            Paint(data, coord);
+            started = Perf.Start();
+            Paint(data, plan);
+            Perf.Stop("terrain paint", started, $"tile {coord.x},{coord.y}");
         }
 
         // The terrain layer under every stock station yard: the station ground (MF, FF, GF, SM,
@@ -176,7 +377,7 @@ namespace Interchanges
         /// within 4 m beyond the bed's half-width, fading out by 12 m. The splat maps are coarse
         /// (64 texels a tile, 8 m each), so this covers a yard, not a single track's width.
         /// </summary>
-        private static void Paint(TerrainData data, Vector2Int coord)
+        private static void Paint(TerrainData data, TilePlan plan)
         {
             var layers = data.alphamapLayers;
             if (layers <= StationLayer)
@@ -184,40 +385,29 @@ namespace Interchanges
             if (StationLayerName == null)
                 StationLayerName = data.terrainLayers != null && data.terrainLayers.Length > StationLayer && data.terrainLayers[StationLayer] != null
                     ? data.terrainLayers[StationLayer].name : "?";
-            var size = data.size;
             int res = data.alphamapResolution;
-            var texel = size.x / res;
-            float ox = coord.x * size.x, oz = coord.y * size.z;
-            var reach = PaintOuter;
             float[,,] maps = null;
             var any = false;
-            foreach (var w in works)
+            foreach (var s in plan.Paint)
             {
-                if (!w.Spec.Paint || !Builder.Built.Contains(w.Layout))
-                    continue;
-                if (w.MaxX + w.Spec.HalfWidth + reach < ox || w.MinX - w.Spec.HalfWidth - reach > ox + size.x ||
-                    w.MaxZ + w.Spec.HalfWidth + reach < oz || w.MinZ - w.Spec.HalfWidth - reach > oz + size.z)
+                if (!Builder.Built.Contains(s.Work.Layout))
                     continue;
                 if (maps == null)
                     maps = data.GetAlphamaps(0, 0, res, res);
-                for (var i = 0; i < res; i++)
-                    for (var j = 0; j < res; j++)
-                    {
-                        float x = ox + (j + 0.5f) * texel, z = oz + (i + 0.5f) * texel;
-                        if (!Nearest(w, x, z, out var d, out _))
-                            continue;
-                        var beyond = d - w.Spec.HalfWidth;
-                        var weight = beyond <= PaintInner ? 1f : Mathf.Clamp01(1f - (beyond - PaintInner) / (PaintOuter - PaintInner));
-                        if (weight <= maps[i, j, StationLayer] + 1e-3f)
-                            continue;
-                        // Raise the station layer to the weight; scale the others to keep the sum.
-                        var rest = 1f - maps[i, j, StationLayer];
-                        var keep = rest > 1e-5f ? (1f - weight) / rest : 0f;
-                        for (var k = 0; k < layers; k++)
-                            maps[i, j, k] = k == StationLayer ? weight : maps[i, j, k] * keep;
-                        any = true;
-                        TexelsPainted++;
-                    }
+                for (var k = 0; k < s.Texels.Length; k++)
+                {
+                    int i = s.Texels[k] / res, j = s.Texels[k] % res;
+                    var weight = s.Weight[k];
+                    if (weight <= maps[i, j, StationLayer] + 1e-3f)
+                        continue;
+                    // Raise the station layer to the weight; scale the others to keep the sum.
+                    var rest = 1f - maps[i, j, StationLayer];
+                    var keep = rest > 1e-5f ? (1f - weight) / rest : 0f;
+                    for (var l = 0; l < layers; l++)
+                        maps[i, j, l] = l == StationLayer ? weight : maps[i, j, l] * keep;
+                    any = true;
+                    TexelsPainted++;
+                }
             }
             if (any)
                 data.SetAlphamaps(0, 0, maps);

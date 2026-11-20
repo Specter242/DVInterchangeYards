@@ -41,8 +41,18 @@ namespace Interchanges
 #if DEVTOOLS
                 Inspector.Install();
 #endif
-                WorldStreamingInit.LoadingFinished += Extras.RefreshMaterial;
-                WorldStreamingInit.LoadingFinished += () => DistantTrack.TryPaint(true);
+                WorldStreamingInit.LoadingFinished += () =>
+                {
+                    var started = Perf.Start();
+                    Extras.RefreshMaterial();
+                    Perf.Stop("tunnel lining", started);
+                };
+                WorldStreamingInit.LoadingFinished += () =>
+                {
+                    var started = Perf.Start();
+                    DistantTrack.TryPaint(true);
+                    Perf.Stop("distant view", started);
+                };
                 return true;
             }
             catch (Exception e)

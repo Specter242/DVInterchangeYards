@@ -192,6 +192,7 @@ namespace Interchanges
 
             private void Start()
             {
+                var started = Perf.Start();
                 try
                 {
                     MapPicture.Apply();
@@ -203,6 +204,10 @@ namespace Interchanges
                 catch (Exception e)
                 {
                     Main.Error($"map drawing: {e}");
+                }
+                finally
+                {
+                    Perf.Stop("map start", started, name);
                 }
             }
 

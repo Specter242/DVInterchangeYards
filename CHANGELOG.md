@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9 (2026-11-20)
+
+- Fixed: short freezes when the ground near either interchange loaded.
+
 ## 0.1.8 (2026-11-12)
 
 - In VR, the kiosks at the interchange offices answer to touch, like a station's. The yard switches' levers carried the same leftover parts and are set right with them.

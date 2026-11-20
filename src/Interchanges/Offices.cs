@@ -54,6 +54,19 @@ namespace Interchanges
 
         private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            var started = Perf.Start();
+            try
+            {
+                Wake(scene);
+            }
+            finally
+            {
+                Perf.Stop("scene loaded", started, scene.name);
+            }
+        }
+
+        private static void Wake(Scene scene)
+        {
             GameObject content;
             try
             {
