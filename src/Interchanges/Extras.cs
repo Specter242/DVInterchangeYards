@@ -47,6 +47,16 @@ namespace Interchanges
             Notes.Clear();
             maskRoot = null;
             lining.Clear();
+            if (ownConcrete != null)
+            {
+                Object.Destroy(ownConcrete);
+                ownConcrete = null;
+            }
+            if (dark != null)
+            {
+                Object.Destroy(dark);
+                dark = null;
+            }
             cached = null;
         }
 
@@ -139,12 +149,10 @@ namespace Interchanges
             var lining = new GameObject($"[tunnel] {t.Track}");
             lining.transform.SetParent(root, false);
             lining.transform.position = portal;
-            var path = t.Path.Select(p => lining.transform.InverseTransformPoint(Frames.World(root, Vec.Of(p)))).ToList();
-            AddMesh(lining, "tube", Tube(path), material);
             var face = new GameObject("portal");
             face.transform.SetParent(lining.transform, false);
             face.transform.SetPositionAndRotation(portal, Quaternion.LookRotation(flat, Vector3.up));
-            var outline = t.Face.Count >= 3
+            var outline = t.Face != null && t.Face.Count >= 3
                 ? t.Face.Select(f => new Vector2(f[0], f[1])).ToList()
                 : new List<Vector2> { new Vector2(-5.5f, Floor), new Vector2(-5.5f, 8.9f), new Vector2(5.5f, 8.9f), new Vector2(5.5f, Floor) };
             AddMesh(face, "face", PortalFace(outline), material);
@@ -152,6 +160,16 @@ namespace Interchanges
             var apron = new GameObject("apron");
             apron.transform.SetParent(face.transform, false);
             AddMesh(apron, "apron", Apron(), material);
+
+            if (t.Path == null || t.Path.Count < 2)
+            {
+                Main.Warn(FormattableString.Invariant($"tunnel {t.Track}: path has {t.Path?.Count ?? 0} point(s); skipping lining tube and end cap"));
+                Notes.Add(FormattableString.Invariant($"tunnel {t.Track}: skipped lining and end cap (path has {t.Path?.Count ?? 0} point(s))"));
+                return;
+            }
+
+            var path = t.Path.Select(p => lining.transform.InverseTransformPoint(Frames.World(root, Vec.Of(p)))).ToList();
+            AddMesh(lining, "tube", Tube(path), material);
             // The far end: dark, so no daylight shows through the hill.
             var end = new GameObject("end");
             end.transform.SetParent(lining.transform, false);
@@ -159,9 +177,11 @@ namespace Interchanges
             var lastDir = last - path[path.Count - 2];
             lastDir.y = 0;
             end.transform.localPosition = last;
-            end.transform.localRotation = Quaternion.LookRotation(lastDir.normalized, Vector3.up);
+            end.transform.localRotation = lastDir.sqrMagnitude > 1e-6f
+                ? Quaternion.LookRotation(lastDir.normalized, Vector3.up)
+                : Quaternion.LookRotation(flat, Vector3.up);
             AddMesh(end, "end", EndCap(), Dark);
-            Notes.Add($"tunnel {t.Track}: {path.Count} lining rings, material {material.name}");
+            Notes.Add(FormattableString.Invariant($"tunnel {t.Track}: {path.Count} lining rings, material {material.name}"));
         }
 
         private const float AnchorInset = 2.25f;
@@ -172,6 +192,7 @@ namespace Interchanges
             : dark = new Material(Shader.Find("Standard")) { name = OwnPrefix + "tunnel dark", color = Color.black };
 
         private static Material cached;
+        private static Material ownConcrete;
         private static readonly List<MeshRenderer> lining = new List<MeshRenderer>();
         internal const string OwnPrefix = "interchanges ";
 
@@ -180,7 +201,14 @@ namespace Interchanges
         {
             if (cached != null)
                 return cached;
-            cached = StockMaterial() ?? new Material(Shader.Find("Standard")) { name = OwnPrefix + "concrete", color = new Color(0.45f, 0.44f, 0.42f) };
+            cached = StockMaterial();
+            if (cached == null)
+            {
+                if (ownConcrete != null)
+                    Object.Destroy(ownConcrete);
+                ownConcrete = new Material(Shader.Find("Standard")) { name = OwnPrefix + "concrete", color = new Color(0.45f, 0.44f, 0.42f) };
+                cached = ownConcrete;
+            }
             return cached;
         }
 
@@ -218,7 +246,7 @@ namespace Interchanges
         /// </summary>
         public static void RefreshMaterial()
         {
-            if (lining.Count == 0 || cached == null || !cached.name.StartsWith(OwnPrefix, StringComparison.Ordinal))
+            if (lining.Count == 0 || cached == null || cached != ownConcrete)
                 return;
             var stock = StockMaterial();
             if (stock == null)
@@ -229,6 +257,11 @@ namespace Interchanges
             cached = stock;
             foreach (var r in lining.Where(r => r != null))
                 r.sharedMaterial = stock;
+            if (ownConcrete != null)
+            {
+                Object.Destroy(ownConcrete);
+                ownConcrete = null;
+            }
             Notes.Add($"tunnel lining: now {stock.name} ({stock.shader.name})");
         }
 

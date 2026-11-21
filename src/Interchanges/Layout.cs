@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -42,19 +43,32 @@ namespace Interchanges
         public const int SupportedFormat = 1;
 
         public Color32 Color32 => Colour != null && Colour.Length == 3
-            ? new Color32((byte)Colour[0], (byte)Colour[1], (byte)Colour[2], 255)
+            ? new Color32(
+                (byte)Mathf.Clamp(Colour[0], 0, 255),
+                (byte)Mathf.Clamp(Colour[1], 0, 255),
+                (byte)Mathf.Clamp(Colour[2], 0, 255),
+                255)
             : new Color32(52, 128, 132, 255);
 
         public static List<Layout> LoadAll(string folder)
         {
             var result = new List<Layout>();
             // In a fixed order, so the layouts' objects always come in the same order after the stock ones.
-            foreach (var file in Directory.GetFiles(folder, "layout-*.json").OrderBy(Path.GetFileName, System.StringComparer.Ordinal))
+            foreach (var file in Directory.GetFiles(folder, "layout-*.json").OrderBy(Path.GetFileName, StringComparer.Ordinal))
             {
-                var layout = JsonConvert.DeserializeObject<Layout>(File.ReadAllText(file));
+                Layout layout;
+                try
+                {
+                    layout = JsonConvert.DeserializeObject<Layout>(File.ReadAllText(file));
+                }
+                catch (Exception e)
+                {
+                    Main.Error($"{Path.GetFileName(file)}: failed to load layout; skipped: {e}");
+                    continue;
+                }
                 if (layout == null || layout.Format != SupportedFormat)
                 {
-                    Main.Warn($"{Path.GetFileName(file)}: format {layout?.Format} is not {SupportedFormat}; skipped");
+                    Main.Warn(FormattableString.Invariant($"{Path.GetFileName(file)}: format {layout?.Format} is not {SupportedFormat}; skipped"));
                     continue;
                 }
                 result.Add(layout);

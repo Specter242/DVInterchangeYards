@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using DV.Items;
 using DV.RenderTextureSystem.BookletRender;
 using DV.Utils;
@@ -79,8 +80,8 @@ namespace Interchanges
                 .OrderBy(l => l.Code ?? l.Site, StringComparer.Ordinal)
                 .Select((l, k) => new Insert { Layout = l, Order = k, Page = stockPages + k })
                 .ToList();
-            Notes.Add($"booklet plan: after the {stockPages} stock pages, " +
-                      string.Join(", ", plan.Select(i => $"{i.Layout.Code} page {i.Page}")));
+            Notes.Add(FormattableString.Invariant($"booklet plan: after the {stockPages} stock pages, ") +
+                      string.Join(", ", plan.Select(i => FormattableString.Invariant($"{i.Layout.Code} page {i.Page}"))));
             return plan;
         }
 
@@ -146,11 +147,15 @@ namespace Interchanges
         {
             if (stock.Length == 0 || Builder.Built.Count == 0)
                 return stock;
-            var page = stock[0];
+            var copy = (JunctionGeneratedDataRuntime.JunctionPageData[])stock.Clone();
+            var page = copy[0];
+            page.junctionDataCoords = page.junctionDataCoords != null
+                ? new List<JunctionGeneratedDataRuntime.DataCoord>(page.junctionDataCoords)
+                : new List<JunctionGeneratedDataRuntime.DataCoord>();
             foreach (var layout in Builder.Built.Where(l => l.RouteMap != null).OrderBy(l => l.Site, StringComparer.Ordinal))
                 page.junctionDataCoords.AddRange(Coords(layout, layout.RouteMap.Cells, "route map"));
-            stock[0] = page;
-            return stock;
+            copy[0] = page;
+            return copy;
         }
 
         [HarmonyPatch(typeof(JunctionGeneratedDataRuntime), nameof(JunctionGeneratedDataRuntime.GetPageData))]
@@ -210,7 +215,7 @@ namespace Interchanges
                     var last = ___allChapters[___allChapters.Count - 1].endingPage;
                     if (last != stockPages - 1)
                     {
-                        Notes.Add($"booklet: its chapters end at page {last}, not at the last stock page {stockPages - 1}; no chapters added");
+                        Notes.Add(FormattableString.Invariant($"booklet: its chapters end at page {last}, not at the last stock page {stockPages - 1}; no chapters added"));
                         return;
                     }
                     foreach (var insert in inserts)
@@ -245,7 +250,7 @@ namespace Interchanges
                     var selectable = ___allChapters.Count(c => c.allowChapterSelector);
                     if (touchscreen.gridSize.x != selectable - tabs.Added)
                     {
-                        Notes.Add($"booklet: the tab strip has {touchscreen.gridSize.x} cells for {selectable - tabs.Added} stock tabs; not widened");
+                        Notes.Add(FormattableString.Invariant($"booklet: the tab strip has {touchscreen.gridSize.x} cells for {selectable - tabs.Added} stock tabs; not widened"));
                         return;
                     }
                     Widen(touchscreen, tabs.Added);
@@ -257,10 +262,12 @@ namespace Interchanges
             }
         }
 
+        private static readonly FieldInfo InteractionColliderField = AccessTools.Field(typeof(DV.CabControls.TouchscreenBase), "interactionCollider");
+        private static readonly FieldInfo LocalInteractionHalfSizeField = AccessTools.Field(typeof(DV.CabControls.TouchscreenBase), "localInteractionHalfSize");
+
         private static void Widen(DV.CabControls.TouchscreenBase touchscreen, int added)
         {
-            var t = Traverse.Create(touchscreen);
-            var collider = t.Field("interactionCollider").GetValue<BoxCollider>();
+            var collider = InteractionColliderField?.GetValue(touchscreen) as BoxCollider;
             if (collider == null || collider.transform != touchscreen.transform)
             {
                 Notes.Add("booklet: the tab strip's collider is not on its touchscreen; not widened");
@@ -274,8 +281,8 @@ namespace Interchanges
             // Cell i lies at origin - half + i * cell, or mirrored when the strip counts from its other end.
             var shift = (touchscreen.flipHorizontalCoords ? -1f : 1f) * cell * added / 2f;
             touchscreen.transform.localPosition += touchscreen.transform.localRotation * new Vector3(shift, 0f, 0f);
-            t.Field("localInteractionHalfSize").SetValue(new Vector2(size.x, size.z) * 0.5f);
-            Notes.Add($"booklet: tab strip widened to {touchscreen.gridSize.x} cells of {cell * 1000f:F2} mm");
+            LocalInteractionHalfSizeField?.SetValue(touchscreen, new Vector2(size.x, size.z) * 0.5f);
+            Notes.Add(FormattableString.Invariant($"booklet: tab strip widened to {touchscreen.gridSize.x} cells of {cell * 1000f:F2} mm"));
         }
 
         // ------------------------------------------------------------ pages
@@ -310,6 +317,36 @@ namespace Interchanges
         {
         }
 
+        /// <summary>Releases a render instance's painted tab-column sprite and texture when that render object is destroyed.</summary>
+        internal sealed class OwnedTabColumn : MonoBehaviour
+        {
+            private Sprite sprite;
+            private Texture2D texture;
+
+            public void Own(Sprite newSprite, Texture2D newTexture)
+            {
+                Release();
+                sprite = newSprite;
+                texture = newTexture;
+            }
+
+            private void OnDestroy() => Release();
+
+            private void Release()
+            {
+                if (sprite != null)
+                {
+                    Object.Destroy(sprite);
+                    sprite = null;
+                }
+                if (texture != null)
+                {
+                    Object.Destroy(texture);
+                    texture = null;
+                }
+            }
+        }
+
         private static string StationOfPage(StaticPageTemplatePaper page)
         {
             var n = page != null ? page.gameObject.name : "";
@@ -327,7 +364,7 @@ namespace Interchanges
             if (pages.Count != stockPages)
             {
                 planFailed = true;
-                Notes.Add($"booklet: the render has {pages.Count} pages but the switch data {stockPages}; the interchanges are left out");
+                Notes.Add(FormattableString.Invariant($"booklet: the render has {pages.Count} pages but the switch data {stockPages}; the interchanges are left out"));
                 return;
             }
             // The stations in their tabs' order: their pages' order.
@@ -340,8 +377,12 @@ namespace Interchanges
                 ? TabColumn.Paint(navigators[0].sprite, stations, inserts.Select(i => (i.Layout.Code, i.Layout.Color32)).ToList(), Notes)
                 : null;
             if (column != null)
+            {
+                var owner = render.gameObject.GetComponent<OwnedTabColumn>() ?? render.gameObject.AddComponent<OwnedTabColumn>();
+                owner.Own(column, column.texture);
                 foreach (var n in navigators)
                     n.sprite = column;
+            }
 
             var prototypes = Prototypes(pages.Select(p => Find(p.transform, WrapperPath + "/SMap")));
             foreach (var insert in inserts)
@@ -373,7 +414,7 @@ namespace Interchanges
                     Object.DestroyImmediate(child.gameObject);
                 var made = Place(smap, spec.Tiles, prototypes, badge, colour);
                 pages.Add(copy.GetComponent<StaticPageTemplatePaper>());
-                Notes.Add($"booklet: page {copy.name} at {pages.Count - 1}, tab {stations.Count + insert.Order}, {made} tiles, {spec.Cells.Count} switches");
+                Notes.Add(FormattableString.Invariant($"booklet: page {copy.name} at {pages.Count - 1}, tab {stations.Count + insert.Order}, {made} tiles, {spec.Cells.Count} switches"));
             }
         }
 
@@ -400,7 +441,7 @@ namespace Interchanges
             var b = (float)((n * sxy - sx * sy) / (n * sxx - sx * sx));
             var a = (float)((sy - b * sx) / n);
             var worst = points.Max(p => Math.Abs(p.Y - (a + b * p.Tab)));
-            Notes.Add($"booklet: tab arrows every {b:F2} from {a:F1}, the stock ones within {worst:F1} of it");
+            Notes.Add(FormattableString.Invariant($"booklet: tab arrows every {b:F2} from {a:F1}, the stock ones within {worst:F1} of it"));
             return (a, b, k => a + b * k);
         }
 
@@ -433,7 +474,8 @@ namespace Interchanges
                     var into = tile.Sprite == "SM-ID" ? stations : tile.Sprite == "SM-Switch" ? switches : tracks;
                     made += Place(into, new[] { tile }, prototypes, badge, (Color)layout.Color32);
                 }
-                Notes.Add($"route map: {layout.Site}: {cleared} stock tile(s) cleared, {made} tiles, tie-in at {string.Join(", ", spec.Cells.Select(c => $"{c.Key} ({c.Value[0]}, {c.Value[1]})"))}");
+                Notes.Add(FormattableString.Invariant($"route map: {layout.Site}: {cleared} stock tile(s) cleared, {made} tiles, tie-in at ") +
+                          string.Join(", ", spec.Cells.Select(c => FormattableString.Invariant($"{c.Key} ({c.Value[0]}, {c.Value[1]})"))));
             }
         }
 

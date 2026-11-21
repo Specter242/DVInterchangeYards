@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.10 (2026-11-21)
+
+- Performance improvements and bug fixes.
+
 ## 0.1.9 (2026-11-20)
 
 - Fixed: short freezes when the ground near either interchange loaded.

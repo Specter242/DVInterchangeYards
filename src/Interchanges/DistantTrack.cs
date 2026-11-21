@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using DV.Utils;
 using HarmonyLib;
@@ -50,6 +51,20 @@ namespace Interchanges
 
         /// <summary>Whether the distant terrain now draws the painted map.</summary>
         public static bool Painted => material != null && painted != null && material.GetTexture("_Control") == painted;
+
+        /// <summary>A new world or teardown: restore the stock map on the distant terrain material if ours is still bound, and release the painted copy.</summary>
+        public static void Reset()
+        {
+            if (material != null && stock != null && painted != null && material.GetTexture("_Control") == painted)
+                material.SetTexture("_Control", stock);
+            if (painted != null)
+                Object.Destroy(painted);
+            material = null;
+            painted = null;
+            stock = null;
+            gaveUp = false;
+            Notes.Clear();
+        }
 
         /// <summary>
         /// Paints the built layouts into the distant map once the distant terrain is loaded: tried
@@ -121,12 +136,12 @@ namespace Interchanges
                     yard = StockYard(tried, w, h, out dense);
                     if (yard == null)
                     {
-                        Note($"distant view: the {name} read of {source.name} ({source.graphicsFormat}) shows no stock yards ({dense} yard pixels)");
+                        Note(FormattableString.Invariant($"distant view: the {name} read of {source.name} ({source.graphicsFormat}) shows no stock yards ({dense} yard pixels)"));
                         continue;
                     }
                     slices = tried;
-                    Note($"distant view: {source.name} ({source.graphicsFormat}) read by {name}; stock yard ballast over {dense} pixels weighs " +
-                         string.Join(" ", yard.Select(v => v.ToString("F0"))));
+                    Note(FormattableString.Invariant($"distant view: {source.name} ({source.graphicsFormat}) read by {name}; stock yard ballast over {dense} pixels weighs ") +
+                         string.Join(" ", yard.Select(v => v.ToString("F0", CultureInfo.InvariantCulture))));
                     break;
                 }
                 catch (Exception e)
@@ -166,8 +181,8 @@ namespace Interchanges
             stock = source;
             material = mat;
             mat.SetTexture("_Control", copy);
-            Note($"distant view: {cover.Count} pixels painted ({cover.Count(p => p.Value > 0.99f)} wholly) on a {w} x {h} x {depth} copy " +
-                 $"in {Time.realtimeSinceStartup - started:F1} s");
+            Note(FormattableString.Invariant($"distant view: {cover.Count} pixels painted ({cover.Count(p => p.Value > 0.99f)} wholly) on a {w} x {h} x {depth} copy ") +
+                 FormattableString.Invariant($"in {Time.realtimeSinceStartup - started:F1} s"));
         }
 
         /// <summary>
@@ -245,11 +260,14 @@ namespace Interchanges
             }
         }
 
+        private static Type distantTerrainType;
+
         /// <summary>The distant terrain's material: on its meshes, the one with the ground map.</summary>
         private static Material FindMaterial()
         {
-            var type = AccessTools.TypeByName("DV.WorldTools.DistantTerrain");
-            if (type == null || !(Object.FindObjectOfType(type) is Component distant))
+            if (distantTerrainType == null)
+                distantTerrainType = AccessTools.TypeByName("DV.WorldTools.DistantTerrain");
+            if (distantTerrainType == null || !(Object.FindObjectOfType(distantTerrainType) is Component distant))
                 return null;
             return distant.GetComponentsInChildren<MeshRenderer>(true).Select(r => r.sharedMaterial)
                 .FirstOrDefault(m => m != null && m.HasProperty("_Control") && m.HasProperty("_WorldNormalmap"));
@@ -261,13 +279,22 @@ namespace Interchanges
             var size = MapSize / w;
             var masks = new Dictionary<int, int>();
             foreach (var layout in Builder.Built)
+            {
+                if (layout?.Earthworks == null)
+                    continue;
                 foreach (var bed in layout.Earthworks)
                 {
+                    if (bed?.Points == null || bed.Points.Count < 2 || !(bed.HalfWidth >= 0f) || float.IsInfinity(bed.HalfWidth))
+                        continue;
                     var hw = bed.HalfWidth;
                     for (var k = 0; k + 1 < bed.Points.Count; k++)
                     {
-                        var a = new Vector2(bed.Points[k][0], bed.Points[k][2]);
-                        var b = new Vector2(bed.Points[k + 1][0], bed.Points[k + 1][2]);
+                        var pk = bed.Points[k];
+                        var pn = bed.Points[k + 1];
+                        if (pk == null || pk.Length < 3 || pn == null || pn.Length < 3)
+                            continue;
+                        var a = new Vector2(pk[0], pk[2]);
+                        var b = new Vector2(pn[0], pn[2]);
                         int c0 = Mathf.Max(0, Mathf.FloorToInt((Mathf.Min(a.x, b.x) - hw) / size)), c1 = Mathf.Min(w - 1, Mathf.FloorToInt((Mathf.Max(a.x, b.x) + hw) / size));
                         int r0 = Mathf.Max(0, Mathf.FloorToInt((Mathf.Min(a.y, b.y) - hw) / size)), r1 = Mathf.Min(h - 1, Mathf.FloorToInt((Mathf.Max(a.y, b.y) + hw) / size));
                         for (var r = r0; r <= r1; r++)
@@ -288,24 +315,15 @@ namespace Interchanges
                             }
                     }
                 }
+            }
             return masks.ToDictionary(p => p.Key, p => Count(p.Value) / (float)(Samples * Samples));
         }
 
-        private static float Distance(Vector2 p, Vector2 a, Vector2 b)
-        {
-            var ab = b - a;
-            var t = ab.sqrMagnitude < 1e-6f ? 0f : Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude);
-            return (p - (a + ab * t)).magnitude;
-        }
+        private static float Distance(Vector2 p, Vector2 a, Vector2 b) =>
+            InterchangeMath.PointSegmentDistance2D(p.x, p.y, a.x, a.y, b.x, b.y);
 
-        private static int Count(int bits)
-        {
-            var n = 0;
-            for (; bits != 0; bits &= bits - 1)
-                n++;
-            return n;
-        }
+        private static int Count(int bits) => InterchangeMath.PopCount(bits);
 
-        private static byte Mix(byte from, float to, float share) => (byte)Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(from, to, share)), 0, 255);
+        private static byte Mix(byte from, float to, float share) => InterchangeMath.DistantMix(from, to, share);
     }
 }

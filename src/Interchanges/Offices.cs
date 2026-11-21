@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -200,11 +201,11 @@ namespace Interchanges
                 parts.AddRange(localize.GetComponents<I2.Loc.LocalizationParamsManager>());
             }
             // The touch helpers before their behaviours, which would otherwise destroy them late.
-            foreach (var helper in helpers.Distinct())
+            foreach (var helper in helpers.Where(h => h != null).Distinct())
                 Object.DestroyImmediate(helper);
             // Implementations first: nothing requires them, and they hold the handlers. The VR
             // interactable last, after the parts that work through it.
-            foreach (var part in parts.Distinct().OrderBy(p => p is DV.CabControls.ControlImplBase ? 0 : p is Joint ? 1
+            foreach (var part in parts.Where(p => p != null).Distinct().OrderBy(p => p is DV.CabControls.ControlImplBase ? 0 : p is Joint ? 1
                                                                 : p.GetType().FullName == VrInteractable ? 3 : 2))
                 Object.DestroyImmediate(part);
             return parts.Count + helpers.Count;
@@ -222,6 +223,8 @@ namespace Interchanges
         /// <summary>The helper object that touch behaviour takes its direction from, made beside the button.</summary>
         internal const string VrTouchHelper = "[interaction direction]";
 
+        private static readonly Dictionary<Type, FieldInfo> DirectionFields = new Dictionary<Type, FieldInfo>();
+
         /// <summary>
         /// The helper of a touch behaviour the button made for itself, or null for a behaviour the
         /// office came with, which stays (the button uses the one it finds). The made one is
@@ -229,7 +232,10 @@ namespace Interchanges
         /// </summary>
         private static Transform MadeTouchHelper(MonoBehaviour touch)
         {
-            var direction = touch.GetType().GetField("direction")?.GetValue(touch) as Transform;
+            var type = touch.GetType();
+            if (!DirectionFields.TryGetValue(type, out var field))
+                DirectionFields[type] = field = type.GetField("direction");
+            var direction = field?.GetValue(touch) as Transform;
             return direction != null && direction.name == VrTouchHelper && direction.parent == touch.transform.parent
                    && direction.childCount == 0 && direction.GetComponents<Component>().Length == 1
                 ? direction : null;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using DV.Teleporters;
 using HarmonyLib;
 using TMPro;
@@ -188,6 +189,9 @@ namespace Interchanges
         /// </summary>
         internal sealed class Overlay : MonoBehaviour
         {
+            private static readonly FieldInfo BoundsField = AccessTools.Field(typeof(MapMarkersController), "bounds");
+            private static readonly FieldInfo StationMarkerPrefabField = AccessTools.Field(typeof(MapMarkersController), "stationMarkerPrefab");
+
             public int Drawn { get; private set; }
 
             private void Start()
@@ -217,7 +221,7 @@ namespace Interchanges
             /// <summary>The map frame (x, z) to a map's frame, as its MapMarkersController places markers.</summary>
             internal static Vector3 LocalOf(MapMarkersController controller, Vector2 m, float y)
             {
-                var bounds = Traverse.Create(controller).Field("bounds").GetValue<BoxCollider>();
+                var bounds = controller != null ? BoundsField?.GetValue(controller) as BoxCollider : null;
                 var half = new Vector2(bounds.size.x, bounds.size.z) * 0.5f;
                 var size = LevelInfo.WorldSize;
                 var offset = LevelInfo.WorldOffset;
@@ -230,11 +234,11 @@ namespace Interchanges
             internal float MarkerDiameter()
             {
                 var controller = GetComponent<MapMarkersController>();
-                var prefab = Traverse.Create(controller).Field("stationMarkerPrefab").GetValue<MapMarker>();
+                var prefab = controller != null ? StationMarkerPrefabField?.GetValue(controller) as MapMarker : null;
                 var disc = prefab == null ? null : prefab.GetComponentsInChildren<MeshFilter>(true).FirstOrDefault(f => f.name == "Visuals" && f.sharedMesh != null);
                 if (disc != null)
                     return disc.sharedMesh.bounds.size.x * disc.transform.lossyScale.x;
-                var bounds = Traverse.Create(controller).Field("bounds").GetValue<BoxCollider>();
+                var bounds = controller != null ? BoundsField?.GetValue(controller) as BoxCollider : null;
                 return MarkerAcross * bounds.size.x / LevelInfo.WorldSize.x;
             }
 
@@ -312,9 +316,20 @@ namespace Interchanges
                 return;
             }
             var drawings = MapMarks.Drawings();
-            var source = Resources.FindObjectsOfTypeAll<Material>().Select(MainTexture)
-                .FirstOrDefault(t => t != null && t.name == SourceName);
-            if (drawings.Count == 0 || source == null)
+            if (drawings.Count == 0)
+                return;
+            var materials = Resources.FindObjectsOfTypeAll<Material>();
+            Texture source = null;
+            foreach (var m in materials)
+            {
+                var t = MainTexture(m);
+                if (t != null && t.name == SourceName)
+                {
+                    source = t;
+                    break;
+                }
+            }
+            if (source == null)
                 return;
             var tex = Readable(source, SourceName + " (interchanges)", true);
             var w = tex.width;
@@ -324,13 +339,15 @@ namespace Interchanges
             tex.Compress(false);
             tex.Apply(false, true);
             painted = tex;
-            Cover();
+            Cover(materials);
         }
 
         /// <summary>Every material showing the original picture shows the painted one.</summary>
-        private static void Cover()
+        private static void Cover() => Cover(Resources.FindObjectsOfTypeAll<Material>());
+
+        private static void Cover(Material[] materials)
         {
-            foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
+            foreach (var m in materials)
                 if (MainTexture(m) is Texture t && t != painted && t.name == SourceName)
                 {
                     originals[m] = m.mainTexture;
@@ -340,8 +357,15 @@ namespace Interchanges
         }
 
         /// <summary>A material's main texture, asking only materials that have that texture slot.</summary>
-        private static Texture MainTexture(Material m) =>
-            m != null && m.shader != null && m.GetTexturePropertyNames().Contains("_MainTex") ? m.GetTexture("_MainTex") : null;
+        private static Texture MainTexture(Material m)
+        {
+            if (m == null || m.shader == null)
+                return null;
+            var idx = m.shader.FindPropertyIndex("_MainTex");
+            return idx >= 0 && m.shader.GetPropertyType(idx) == UnityEngine.Rendering.ShaderPropertyType.Texture
+                ? m.GetTexture("_MainTex")
+                : null;
+        }
 
         /// <summary>The painted picture's pixels around a drawing, for the inspector (the texture itself is GPU-only).</summary>
         public static Texture2D Crop(MapMarks.Drawing d, int margin)
@@ -364,17 +388,29 @@ namespace Interchanges
         internal static Texture2D Readable(Texture source, string name, bool mips)
         {
             var rt = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-            Graphics.Blit(source, rt);
             var previous = RenderTexture.active;
-            RenderTexture.active = rt;
-            var tex = new Texture2D(source.width, source.height, TextureFormat.RGBA32, mips, false)
+            Texture2D tex = null;
+            try
             {
-                name = name, wrapMode = source.wrapMode, filterMode = source.filterMode, anisoLevel = source.anisoLevel,
-            };
-            tex.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0, false);
-            RenderTexture.active = previous;
-            RenderTexture.ReleaseTemporary(rt);
-            return tex;
+                Graphics.Blit(source, rt);
+                RenderTexture.active = rt;
+                tex = new Texture2D(source.width, source.height, TextureFormat.RGBA32, mips, false);
+                tex.name = name;
+                tex.wrapMode = source.wrapMode;
+                tex.filterMode = source.filterMode;
+                tex.anisoLevel = source.anisoLevel;
+                tex.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0, false);
+                var result = tex;
+                tex = null;
+                return result;
+            }
+            finally
+            {
+                if (tex != null)
+                    Object.Destroy(tex);
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(rt);
+            }
         }
 
         private static void Paint(Texture2D tex, MapMarks.Drawing d, float scale)

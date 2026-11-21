@@ -56,29 +56,59 @@ namespace Interchanges
         public static int TilesEdited;
         public static int SamplesChanged;
 
+        /// <summary>A new world: reset per-session counters while keeping the layout-static works and tile plans.</summary>
+        public static void ResetStats()
+        {
+            TilesEdited = 0;
+            SamplesChanged = 0;
+            TexelsPainted = 0;
+        }
+
         public static void Install()
         {
             foreach (var layout in Main.Layouts)
+            {
+                if (layout?.Earthworks == null)
+                    continue;
                 foreach (var e in layout.Earthworks)
                 {
+                    if (!IsValidEarthwork(e))
+                    {
+                        Main.Warn($"terrain: skipping malformed earthwork {e?.Name ?? "(unnamed)"} in {layout.Site}");
+                        continue;
+                    }
                     var w = Prepare(e);
+                    if (w == null)
+                        continue;
                     w.Layout = layout;
                     works.Add(w);
                 }
+            }
             if (works.Count > 0)
             {
                 TerrainGrid.TerrainDataLoaded += OnLoaded;
                 PlanAhead();
             }
-            Main.Log($"terrain: {works.Count} earthwork(s)");
+            Main.Log(FormattableString.Invariant($"terrain: {works.Count} earthwork(s)"));
         }
+
+        private static bool IsValidEarthwork(EarthworkSpec e) =>
+            e?.Points != null && e.Points.Count >= 2 &&
+            e.HalfWidth >= 0f && !float.IsInfinity(e.HalfWidth) &&
+            e.Points.All(p => p != null && p.Length >= 3 && !float.IsNaN(p[0]) && !float.IsInfinity(p[0]) && !float.IsNaN(p[1]) && !float.IsInfinity(p[1]) && !float.IsNaN(p[2]) && !float.IsInfinity(p[2]));
 
         private static Work Prepare(EarthworkSpec e)
         {
+            if (!IsValidEarthwork(e))
+                return null;
             var w = new Work { Spec = e, P = e.Points.Select(Vec.Of).ToArray() };
+            if (w.P.Length < 2)
+                return null;
             w.MinX = w.P.Min(p => p.x); w.MaxX = w.P.Max(p => p.x);
             w.MinZ = w.P.Min(p => p.z); w.MaxZ = w.P.Max(p => p.z);
-            w.Margin = e.HalfWidth + 40f * Math.Max(e.Cut, e.Fill);   // reaches 40 m of cut or fill
+            var cut = e.Cut > 1e-4f && !float.IsInfinity(e.Cut) ? e.Cut : 0f;
+            var fill = e.Fill > 1e-4f && !float.IsInfinity(e.Fill) ? e.Fill : 0f;
+            w.Margin = e.HalfWidth + 40f * Math.Max(cut, fill);   // reaches 40 m of cut or fill
             if (w.P.Length >= 2)
             {
                 var a = w.P[w.P.Length - 2]; var b = w.P[w.P.Length - 1];
@@ -94,7 +124,7 @@ namespace Interchanges
                 for (var cx = x0; cx <= x1; cx++)
                     for (var cz = z0; cz <= z1; cz++)
                     {
-                        var key = ((long)cx << 32) ^ (uint)cz;
+                        var key = InterchangeMath.CellKey(cx, cz);
                         if (!w.Grid.TryGetValue(key, out var list)) w.Grid[key] = list = new List<int>();
                         list.Add(i);
                     }
@@ -113,7 +143,7 @@ namespace Interchanges
             }
             catch (Exception e)
             {
-                Main.Error($"terrain edit on tile {coord}: {e}");
+                Main.Error(FormattableString.Invariant($"terrain edit on tile {coord}: {e}"));
             }
         }
 
@@ -154,13 +184,13 @@ namespace Interchanges
         private const int TileRes = 513, TileAlphaRes = 64;
 
         private static readonly ConcurrentDictionary<long, TilePlan> plans = new ConcurrentDictionary<long, TilePlan>();
-        private static int planning, plannedAhead;
-        private static long planningTicks;
+        private static int planning, plannedAhead, planningReady;
+        private static long planningTicks, planningElapsedMs;
         private static readonly System.Diagnostics.Stopwatch planningClock = new System.Diagnostics.Stopwatch();
         private static string planFailure;
         private static bool planReported;
 
-        private static long Key(Vector2Int coord) => ((long)coord.x << 32) ^ (uint)coord.y;
+        private static long Key(Vector2Int coord) => InterchangeMath.CellKey(coord.x, coord.y);
 
         /// <summary>Plans every tile a bed reaches, on the thread pool, before the world loads.</summary>
         private static void PlanAhead()
@@ -171,6 +201,11 @@ namespace Interchanges
                     for (var tz = (int)Math.Floor((w.MinZ - w.Margin) / TileSize); tz <= (int)Math.Floor((w.MaxZ + w.Margin) / TileSize); tz++)
                         tiles.Add(new Vector2Int(tx, tz));
             planning = tiles.Count;
+            if (tiles.Count == 0)
+            {
+                System.Threading.Volatile.Write(ref planningReady, 1);
+                return;
+            }
             planningClock.Start();
             foreach (var tile in tiles)
                 System.Threading.ThreadPool.QueueUserWorkItem(_ =>
@@ -183,13 +218,17 @@ namespace Interchanges
                     }
                     catch (Exception e)
                     {
-                        planFailure = $"tile {tile}: {e}";
+                        System.Threading.Interlocked.CompareExchange(ref planFailure, FormattableString.Invariant($"tile {tile}: {e}"), null);
                     }
                     finally
                     {
                         System.Threading.Interlocked.Add(ref planningTicks, System.Diagnostics.Stopwatch.GetTimestamp() - started);
                         if (System.Threading.Interlocked.Decrement(ref planning) == 0)
+                        {
                             planningClock.Stop();
+                            System.Threading.Volatile.Write(ref planningElapsedMs, planningClock.ElapsedMilliseconds);
+                            System.Threading.Volatile.Write(ref planningReady, 1);
+                        }
                     }
                 });
         }
@@ -197,48 +236,55 @@ namespace Interchanges
         /// <summary>Says once, on the game's thread, how the planning ahead went.</summary>
         private static void ReportPlanning()
         {
-            if (planReported || System.Threading.Volatile.Read(ref planning) > 0)
+            if (planReported || System.Threading.Volatile.Read(ref planningReady) == 0)
                 return;
             planReported = true;
             var cpu = System.Threading.Interlocked.Read(ref planningTicks) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-            Main.Log($"terrain: {plannedAhead} tile(s) planned off the game's thread in {planningClock.ElapsedMilliseconds} ms ({cpu:F0} ms of work)");
-            if (planFailure != null)
-                Main.Error($"terrain: planning ahead failed for {planFailure}; that tile is planned as it loads");
+            var planned = System.Threading.Volatile.Read(ref plannedAhead);
+            var elapsed = System.Threading.Volatile.Read(ref planningElapsedMs);
+            Main.Log(FormattableString.Invariant($"terrain: {planned} tile(s) planned off the game's thread in {elapsed} ms ({cpu:F0} ms of work)"));
+            var failure = System.Threading.Volatile.Read(ref planFailure);
+            if (failure != null)
+                Main.Error($"terrain: planning ahead failed for {failure}; that tile is planned as it loads");
         }
 
         /// <summary>A tile's plan for its size and resolutions: every bed's share, built or not.</summary>
         private static TilePlan Plan(Vector2Int coord, float sizeX, float sizeZ, int res, int alphaRes)
         {
             var plan = new TilePlan { SizeX = sizeX, SizeZ = sizeZ, Res = res };
-            var step = sizeX / (res - 1);
-            float ox = coord.x * sizeX, oz = coord.y * sizeZ;
-            var samples = new List<int>();
-            var dists = new List<float>();
-            var formations = new List<float>();
-            foreach (var w in works)
+            if (res > 1 && sizeX > 0f && sizeZ > 0f)
             {
-                float x0 = Math.Max(ox, w.MinX - w.Margin), x1 = Math.Min(ox + sizeX, w.MaxX + w.Margin);
-                float z0 = Math.Max(oz, w.MinZ - w.Margin), z1 = Math.Min(oz + sizeZ, w.MaxZ + w.Margin);
-                if (x0 > x1 || z0 > z1)
-                    continue;
-                int j0 = Mathf.Clamp((int)Math.Floor((x0 - ox) / step), 0, res - 1), j1 = Mathf.Clamp((int)Math.Ceiling((x1 - ox) / step), 0, res - 1);
-                int i0 = Mathf.Clamp((int)Math.Floor((z0 - oz) / step), 0, res - 1), i1 = Mathf.Clamp((int)Math.Ceiling((z1 - oz) / step), 0, res - 1);
-                int width = j1 - j0 + 1, height = i1 - i0 + 1;
-                samples.Clear();
-                dists.Clear();
-                formations.Clear();
-                for (var i = 0; i < height; i++)
-                    for (var j = 0; j < width; j++)
-                    {
-                        float x = ox + (j0 + j) * step, z = oz + (i0 + i) * step;
-                        if (!Nearest(w, x, z, out var d, out var formation))
-                            continue;
-                        samples.Add(i * width + j);
-                        dists.Add(d);
-                        formations.Add(formation);
-                    }
-                if (samples.Count > 0)
-                    plan.Heights.Add(new Share { Work = w, J0 = j0, I0 = i0, Width = width, Samples = samples.ToArray(), Dist = dists.ToArray(), Formation = formations.ToArray() });
+                var stepX = sizeX / (res - 1);
+                var stepZ = sizeZ / (res - 1);
+                float ox = coord.x * sizeX, oz = coord.y * sizeZ;
+                var samples = new List<int>();
+                var dists = new List<float>();
+                var formations = new List<float>();
+                foreach (var w in works)
+                {
+                    float x0 = Math.Max(ox, w.MinX - w.Margin), x1 = Math.Min(ox + sizeX, w.MaxX + w.Margin);
+                    float z0 = Math.Max(oz, w.MinZ - w.Margin), z1 = Math.Min(oz + sizeZ, w.MaxZ + w.Margin);
+                    if (x0 > x1 || z0 > z1)
+                        continue;
+                    int j0 = Mathf.Clamp((int)Math.Floor((x0 - ox) / stepX), 0, res - 1), j1 = Mathf.Clamp((int)Math.Ceiling((x1 - ox) / stepX), 0, res - 1);
+                    int i0 = Mathf.Clamp((int)Math.Floor((z0 - oz) / stepZ), 0, res - 1), i1 = Mathf.Clamp((int)Math.Ceiling((z1 - oz) / stepZ), 0, res - 1);
+                    int width = j1 - j0 + 1, height = i1 - i0 + 1;
+                    samples.Clear();
+                    dists.Clear();
+                    formations.Clear();
+                    for (var i = 0; i < height; i++)
+                        for (var j = 0; j < width; j++)
+                        {
+                            float x = ox + (j0 + j) * stepX, z = oz + (i0 + i) * stepZ;
+                            if (!Nearest(w, x, z, out var d, out var formation))
+                                continue;
+                            samples.Add(i * width + j);
+                            dists.Add(d);
+                            formations.Add(formation);
+                        }
+                    if (samples.Count > 0)
+                        plan.Heights.Add(new Share { Work = w, J0 = j0, I0 = i0, Width = width, Samples = samples.ToArray(), Dist = dists.ToArray(), Formation = formations.ToArray() });
+                }
             }
             PlanPaint(plan, coord, alphaRes);
             return plan;
@@ -248,7 +294,14 @@ namespace Interchanges
         private static void PlanPaint(TilePlan plan, Vector2Int coord, int alphaRes)
         {
             var paint = new List<Share>();
-            var texel = plan.SizeX / alphaRes;
+            if (alphaRes <= 0 || plan.SizeX <= 0f || plan.SizeZ <= 0f)
+            {
+                plan.Paint = paint;
+                plan.AlphaRes = alphaRes;
+                return;
+            }
+            var texelX = plan.SizeX / alphaRes;
+            var texelZ = plan.SizeZ / alphaRes;
             float ox = coord.x * plan.SizeX, oz = coord.y * plan.SizeZ;
             var reach = PaintOuter;
             var texels = new List<int>();
@@ -265,11 +318,10 @@ namespace Interchanges
                 for (var i = 0; i < alphaRes; i++)
                     for (var j = 0; j < alphaRes; j++)
                     {
-                        float x = ox + (j + 0.5f) * texel, z = oz + (i + 0.5f) * texel;
+                        float x = ox + (j + 0.5f) * texelX, z = oz + (i + 0.5f) * texelZ;
                         if (!Nearest(w, x, z, out var d, out _))
                             continue;
-                        var beyond = d - w.Spec.HalfWidth;
-                        var weight = beyond <= PaintInner ? 1f : Mathf.Clamp01(1f - (beyond - PaintInner) / (PaintOuter - PaintInner));
+                        var weight = InterchangeMath.TerrainPaintWeight(d, w.Spec.HalfWidth, PaintInner, PaintOuter);
                         // A texel's own weight is never below 0, so one this light is never raised.
                         if (weight <= 1e-3f)
                             continue;
@@ -291,13 +343,13 @@ namespace Interchanges
                 var started = Perf.Start();
                 plan = Plan(coord, data.size.x, data.size.z, data.heightmapResolution, data.alphamapResolution);
                 plans[Key(coord)] = plan;
-                Perf.Stop("terrain plan made as the tile loaded", started, $"tile {coord.x},{coord.y}");
+                Perf.Stop("terrain plan made as the tile loaded", started, FormattableString.Invariant($"tile {coord.x},{coord.y}"));
             }
             else if (plan.AlphaRes != data.alphamapResolution)
             {
                 var started = Perf.Start();
                 PlanPaint(plan, coord, data.alphamapResolution);
-                Perf.Stop("terrain paint plan made as the tile loaded", started, $"tile {coord.x},{coord.y}");
+                Perf.Stop("terrain paint plan made as the tile loaded", started, FormattableString.Invariant($"tile {coord.x},{coord.y}"));
             }
             return plan;
         }
@@ -315,7 +367,7 @@ namespace Interchanges
             var size = data.size;
             var changed = 0;
             var started = Perf.Start();
-            var shares = plan.Heights.Where(s => Builder.Built.Contains(s.Work.Layout)).ToList();
+            var shares = size.y > 0f ? plan.Heights.Where(s => Builder.Built.Contains(s.Work.Layout)).ToList() : new List<Share>();
             if (shares.Count > 0)
             {
                 int uj0 = int.MaxValue, ui0 = int.MaxValue, uj1 = int.MinValue, ui1 = int.MinValue;
@@ -336,11 +388,7 @@ namespace Interchanges
                         int i = s.I0 - ui0 + s.Samples[k] / s.Width, j = s.J0 - uj0 + s.Samples[k] % s.Width;
                         var orig = heights[i, j] * size.y;
                         var formation = s.Formation[k];
-                        float target;
-                        var beyond = s.Dist[k] - spec.HalfWidth;
-                        if (beyond <= 0) target = formation;
-                        else if (orig > formation) target = Math.Min(orig, formation + beyond / spec.Cut);
-                        else target = Math.Max(orig, formation - beyond / spec.Fill);
+                        var target = InterchangeMath.TerrainTargetHeight(orig, formation, s.Dist[k], spec.HalfWidth, spec.Cut, spec.Fill);
                         if (Math.Abs(target - orig) > 0.005f)
                         {
                             heights[i, j] = target / size.y;
@@ -351,18 +399,18 @@ namespace Interchanges
                 if (changed > 0)
                     data.SetHeightsDelayLOD(uj0, ui0, heights);
             }
-            Perf.Stop("terrain heights", started, $"tile {coord.x},{coord.y}, {changed} samples changed");
+            Perf.Stop("terrain heights", started, FormattableString.Invariant($"tile {coord.x},{coord.y}, {changed} samples changed"));
             if (changed > 0)
             {
                 started = Perf.Start();
                 data.SyncHeightmap();
-                Perf.Stop("terrain heightmap sync", started, $"tile {coord.x},{coord.y}");
+                Perf.Stop("terrain heightmap sync", started, FormattableString.Invariant($"tile {coord.x},{coord.y}"));
                 TilesEdited++;
                 SamplesChanged += changed;
             }
             started = Perf.Start();
             Paint(data, plan);
-            Perf.Stop("terrain paint", started, $"tile {coord.x},{coord.y}");
+            Perf.Stop("terrain paint", started, FormattableString.Invariant($"tile {coord.x},{coord.y}"));
         }
 
         // The terrain layer under every stock station yard: the station ground (MF, FF, GF, SM,
@@ -386,6 +434,8 @@ namespace Interchanges
                 StationLayerName = data.terrainLayers != null && data.terrainLayers.Length > StationLayer && data.terrainLayers[StationLayer] != null
                     ? data.terrainLayers[StationLayer].name : "?";
             int res = data.alphamapResolution;
+            if (res <= 0)
+                return;
             float[,,] maps = null;
             var any = false;
             foreach (var s in plan.Paint)
@@ -435,7 +485,7 @@ namespace Interchanges
             // Past a square end (a portal) nothing is shaped: the hill stays over the tunnel.
             if (w.Spec.SquareEnd && Vector2.Dot(new Vector2(x, z) - w.EndAt, w.EndDir) > 0f)
                 return false;
-            var key = ((long)(int)Math.Floor(x / Cell) << 32) ^ (uint)(int)Math.Floor(z / Cell);
+            var key = InterchangeMath.CellKey((int)Math.Floor(x / Cell), (int)Math.Floor(z / Cell));
             if (!w.Grid.TryGetValue(key, out var segs))
                 return false;
             foreach (var i in segs)

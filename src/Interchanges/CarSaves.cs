@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using DV.JObjectExtstensions;
 using DV.Utils;
@@ -118,6 +119,26 @@ namespace Interchanges
                     if (!bogies.Any(OnOurs))
                         return;
 
+                    var carGuid = car.logicCar?.carGuid;
+                    if (string.IsNullOrEmpty(carGuid))
+                    {
+                        Main.Warn($"saving car {car.ID}: missing logicCar or carGuid; leaving save entry untouched");
+                        return;
+                    }
+                    if (__result.GetVector3("position") == null || __result.GetVector3("rotation") == null)
+                    {
+                        Main.Warn($"saving car {car.ID}: missing saved pose; leaving save entry untouched");
+                        return;
+                    }
+                    foreach (var b in bogies)
+                    {
+                        if (b == null || (!b.HasDerailed && (b.track == null || b.traveller == null || !IsFinite(b.traveller.Span))))
+                        {
+                            Main.Warn($"saving car {car.ID}: incomplete bogie state; leaving save entry untouched");
+                            return;
+                        }
+                    }
+
                     // On a tie-in's through leg or stub only: saved at its place on the stock track.
                     var mapped = new (int Index, double Span)?[2];
                     for (var i = 0; i < 2; i++)
@@ -126,7 +147,7 @@ namespace Interchanges
                             continue;
                         var b = bogies[i];
                         var tie = Builder.TieIns.FirstOrDefault(t => t.Through == b.track || t.Stub == b.track);
-                        if (tie != null && tie.ToStock(b.track, b.traveller.Span, out var stockSpan))
+                        if (tie != null && tie.ToStock(b.track, b.traveller.Span, out var stockSpan) && IsFinite(stockSpan))
                         {
                             var index = Array.IndexOf(tracks, tie.Stock);
                             if (index >= 0)
@@ -147,18 +168,29 @@ namespace Interchanges
 
                     // Elsewhere on our track: derailed in place for the game, each bogie's place for us,
                     // with the pose of that derailed entry it belongs to.
+                    var placedBogies = new JArray();
+                    foreach (var b in bogies)
+                    {
+                        if (!TryPlace(b, tracks, out var token))
+                        {
+                            Main.Warn($"saving car {car.ID}: incomplete on-track bogie state; leaving save entry untouched");
+                            return;
+                        }
+                        placedBogies.Add(token);
+                    }
+                    var placement = new JObject
+                    {
+                        ["bogies"] = placedBogies,
+                        ["position"] = __result["position"].DeepClone(),
+                        ["rotation"] = __result["rotation"].DeepClone(),
+                    };
                     foreach (var k in BogieKeys)
                     {
                         __result.Remove(k.Index);
                         __result.Remove(k.Span);
                         __result[k.Derailed] = true;
                     }
-                    placements[car.logicCar.carGuid] = new JObject
-                    {
-                        ["bogies"] = new JArray(bogies.Select(b => Place(b, tracks))),
-                        ["position"] = __result["position"]?.DeepClone(),
-                        ["rotation"] = __result["rotation"]?.DeepClone(),
-                    };
+                    placements[carGuid] = placement;
                     PlacedOnSave++;
                 }
                 catch (Exception e)
@@ -168,20 +200,41 @@ namespace Interchanges
             }
         }
 
-        /// <summary>A bogie's place: its track's stable identity and its span; null when derailed.</summary>
-        private static JToken Place(Bogie b, RailTrack[] tracks)
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        /// <summary>A bogie's place: its track's stable identity and its span; null when genuinely derailed.</summary>
+        private static bool TryPlace(Bogie b, RailTrack[] tracks, out JToken token)
         {
-            if (b == null || b.HasDerailed || b.track == null)
-                return JValue.CreateNull();
+            if (b == null)
+            {
+                token = null;
+                return false;
+            }
+            if (b.HasDerailed)
+            {
+                token = JValue.CreateNull();
+                return true;
+            }
+            if (b.track == null || b.traveller == null || !IsFinite(b.traveller.Span))
+            {
+                token = null;
+                return false;
+            }
             string id;
             if (Builder.IsOurs(b.track))
                 id = Builder.IdOf(b.track);
             else
             {
                 var index = Array.IndexOf(tracks, b.track);
-                id = index >= 0 ? StockPrefix + index : null;
+                id = index >= 0 ? StockPrefix + index.ToString(CultureInfo.InvariantCulture) : null;
             }
-            return id == null ? JValue.CreateNull() : new JObject { ["track"] = id, ["span"] = b.traveller.Span };
+            if (string.IsNullOrEmpty(id))
+            {
+                token = null;
+                return false;
+            }
+            token = new JObject { ["track"] = id, ["span"] = b.traveller.Span };
+            return true;
         }
 
         // ------------------------------------------------------------ cars: loading
@@ -253,7 +306,7 @@ namespace Interchanges
                     var track = Resolve(p["track"]?.Value<string>(), tracks);
                     var span = p["span"]?.Value<double?>();
                     var length = track?.GetKinkedPointSet()?.span;
-                    if (track == null || span == null || length == null || span < -0.01 || span > length + 0.01)
+                    if (track == null || span == null || length == null || !IsFinite(span.Value) || !IsFinite(length.Value) || span.Value < -0.01 || span.Value > length.Value + 0.01)
                     {
                         Main.Warn($"car {carData["id"]}: its saved place {p.ToString(Newtonsoft.Json.Formatting.None)} no longer exists; it stays derailed where it stood");
                         return LoadOutcome.LeftDerailed;
@@ -278,7 +331,7 @@ namespace Interchanges
             if (string.IsNullOrEmpty(id))
                 return null;
             if (id.StartsWith(StockPrefix, StringComparison.Ordinal))
-                return int.TryParse(id.Substring(StockPrefix.Length), out var i) && i >= 0 && i < tracks.Length && !Builder.IsOurs(tracks[i]) ? tracks[i] : null;
+                return int.TryParse(id.Substring(StockPrefix.Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) && i >= 0 && i < tracks.Length && !Builder.IsOurs(tracks[i]) ? tracks[i] : null;
             var t = Builder.TrackById(id);
             return t != null && Array.IndexOf(tracks, t) >= 0 ? t : null;
         }
@@ -328,7 +381,12 @@ namespace Interchanges
                     return;
                 try
                 {
-                    var ordered = SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedJunctions;
+                    var registry = SingletonBehaviour<RailTrackRegistryBase>.Instance;
+                    if (registry == null)
+                        return;
+                    var ordered = registry.OrderedJunctions;
+                    if (ordered == null)
+                        return;
                     var indices = __result["indices"]?.ToObject<int[]>() ?? new int[0];
                     var states = __result["states"]?.ToObject<int[]>() ?? new int[0];
                     var keep = Enumerable.Range(0, Math.Min(indices.Length, states.Length))
@@ -337,7 +395,11 @@ namespace Interchanges
                     __result["states"] = new JArray(keep.Select(i => states[i]));
                     junctions = new JObject();
                     foreach (var j in Builder.OurJunctions.Where(j => j != null && j.selectedBranch != j.defaultSelectedBranch))
-                        junctions[Builder.IdOf(j)] = (int)j.selectedBranch;
+                    {
+                        var id = Builder.IdOf(j);
+                        if (!string.IsNullOrEmpty(id))
+                            junctions[id] = (int)j.selectedBranch;
+                    }
                     WriteRecord();
                 }
                 catch (Exception e)
@@ -355,19 +417,41 @@ namespace Interchanges
             {
                 if (savedData == null || Builder.OurJunctions.Count == 0)
                     return;
-                var ordered = SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedJunctions;
-                var indices = savedData["indices"]?.ToObject<int[]>();
-                var states = savedData["states"]?.ToObject<int[]>();
-                if (indices == null || states == null || indices.Length != states.Length)
-                    return;
-                var keep = Enumerable.Range(0, indices.Length).Where(i => indices[i] >= 0 && indices[i] < ordered.Length && !Builder.IsOurs(ordered[indices[i]])).ToList();
-                if (keep.Count == indices.Length)
-                    return;
-                savedData["indices"] = new JArray(keep.Select(i => indices[i]));
-                savedData["states"] = new JArray(keep.Select(i => states[i]));
+                try
+                {
+                    var registry = SingletonBehaviour<RailTrackRegistryBase>.Instance;
+                    if (registry == null)
+                        return;
+                    var ordered = registry.OrderedJunctions;
+                    if (ordered == null)
+                        return;
+                    var indices = savedData["indices"]?.ToObject<int[]>();
+                    var states = savedData["states"]?.ToObject<int[]>();
+                    if (indices == null || states == null || indices.Length != states.Length)
+                        return;
+                    var keep = Enumerable.Range(0, indices.Length).Where(i => indices[i] >= 0 && indices[i] < ordered.Length && !Builder.IsOurs(ordered[indices[i]])).ToList();
+                    if (keep.Count == indices.Length)
+                        return;
+                    savedData["indices"] = new JArray(keep.Select(i => indices[i]));
+                    savedData["states"] = new JArray(keep.Select(i => states[i]));
+                }
+                catch (Exception e)
+                {
+                    Main.Error($"loading switch states: {e}");
+                }
             }
 
-            private static void Postfix() => JunctionsRestored += RestoreJunctions(Record);
+            private static void Postfix()
+            {
+                try
+                {
+                    JunctionsRestored += RestoreJunctions(Record);
+                }
+                catch (Exception e)
+                {
+                    Main.Error($"restoring switch states: {e}");
+                }
+            }
         }
 
         /// <summary>Sets our switches as the record has them; returns how many it set.</summary>

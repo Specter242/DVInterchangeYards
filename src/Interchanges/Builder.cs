@@ -48,31 +48,24 @@ namespace Interchanges
             /// <summary>A bogie on the through leg or stub, as a span on the original stock track.</summary>
             public bool ToStock(RailTrack track, double span, out double stockSpan)
             {
-                stockSpan = 0;
-                if (track == Stub) stockSpan = JointSpan + span;
-                else if (track == Through) stockSpan = JointSpan - span;
-                else return false;
-                stockSpan = Math.Max(0, Math.Min(OriginalSpan, stockSpan));
-                return true;
+                if (track != Stub && track != Through)
+                {
+                    stockSpan = 0;
+                    return false;
+                }
+                return InterchangeMath.TieInToStock(track == Stub, track == Through, JointSpan, OriginalSpan, span, out stockSpan);
             }
 
             /// <summary>A span on the original stock track beyond the kept part, as a place on the through leg or stub.</summary>
             public bool FromStock(double stockSpan, out RailTrack track, out double span)
             {
-                var joint = JointSpan;
+                var stubSpan = Stub.GetKinkedPointSet()?.span ?? 0;
+                var joint = OriginalSpan - stubSpan;
                 var through = Through.GetKinkedPointSet()?.span ?? 24;
                 track = null;
-                span = 0;
-                if (stockSpan >= joint)
-                {
-                    track = Stub;
-                    span = Math.Min(stockSpan - joint, Stub.GetKinkedPointSet()?.span ?? 0);
-                }
-                else if (stockSpan > joint - through)
-                {
-                    track = Through;
-                    span = joint - stockSpan;
-                }
+                if (!InterchangeMath.TieInFromStock(stockSpan, joint, through, stubSpan, out var onStub, out var onThrough, out span))
+                    return false;
+                track = onStub ? Stub : onThrough ? Through : null;
                 return track != null;
             }
         }
@@ -124,6 +117,18 @@ namespace Interchanges
         private static RailTrackRegistryBase builtFor;
         private static bool building;
 
+        /// <summary>Releases world-scoped assets when the world's track registry is torn down (e.g. returning to menu).</summary>
+        private sealed class WorldTeardown : MonoBehaviour
+        {
+            public RailTrackRegistryBase Owner;
+
+            private void OnDestroy()
+            {
+                if (ReferenceEquals(builtFor, Owner))
+                    DistantTrack.Reset();
+            }
+        }
+
         public static bool IsOurs(RailTrack t) => t != null && OurTracks.Contains(t);
         public static bool IsOurs(Junction j) => j != null && OurJunctions.Contains(j);
 
@@ -140,6 +145,8 @@ namespace Interchanges
                 return;
             building = true;
             builtFor = registry;
+            var teardown = registry.GetComponent<WorldTeardown>() ?? registry.gameObject.AddComponent<WorldTeardown>();
+            teardown.Owner = registry;
             OurTracks.Clear();
             OurJunctions.Clear();
             TrimmedStock.Clear();
@@ -154,17 +161,20 @@ namespace Interchanges
             Booklets.Reset();
             CarSaves.Reset();
             JobTracks.Reset();
+            DistantTrack.Reset();
+            TerrainEdits.ResetStats();
             Report.Clear();
             Failure = null;
             try
             {
                 var root = registry.TrackRootParent;
+                var nextSwitchIndex = 0;
                 foreach (var layout in Main.Layouts)
                 {
                     // A layout that fails is dropped whole: before the stock map changes (preparing,
                     // planning its connections), or with its stock changes rolled back (applying).
                     // The other layouts still build.
-                    var site = new SiteBuild(layout, root);
+                    var site = new SiteBuild(layout, root, nextSwitchIndex);
                     try
                     {
                         site.Prepare();
@@ -179,6 +189,7 @@ namespace Interchanges
                         Main.Error($"{layout.Site} was not built; the stock map is unchanged there: {e}");
                         continue;
                     }
+                    nextSwitchIndex += site.SwitchCount;
                     Built.Add(layout);
                     JobTracks.Assign(layout, OurTracks.Where(t => (IdOf(t) ?? "").StartsWith(layout.Site + "/", StringComparison.Ordinal)));
                     try
@@ -192,7 +203,7 @@ namespace Interchanges
                         Main.Error($"{layout.Site}: its vegetation masks or tunnel could not be added: {e}");
                     }
                     Report.AddRange(site.Notes);
-                    Main.Log($"built {layout.Site}: {site.TrackCount} tracks, {site.SwitchCount} switches, {site.BufferCount} buffer stops");
+                    Main.Log(FormattableString.Invariant($"built {layout.Site}: {site.TrackCount} tracks, {site.SwitchCount} switches, {site.BufferCount} buffer stops"));
                 }
             }
             catch (Exception e)
@@ -217,6 +228,7 @@ namespace Interchanges
 
         private readonly Layout layout;
         private readonly Transform root;
+        private readonly int switchIndexOffset;
         private readonly GameObject staging;
         private readonly Dictionary<string, RailTrack> tracks = new Dictionary<string, RailTrack>();
         private readonly List<PlacedSwitch> switches = new List<PlacedSwitch>();
@@ -231,10 +243,11 @@ namespace Interchanges
         public int SwitchCount => switches.Count;
         public int BufferCount => buffers.Count;
 
-        public SiteBuild(Layout layout, Transform root)
+        public SiteBuild(Layout layout, Transform root, int switchIndexOffset = 0)
         {
             this.layout = layout;
             this.root = root;
+            this.switchIndexOffset = switchIndexOffset;
             staging = new GameObject($"[interchanges staging {layout.Site}]");
             staging.SetActive(false);
         }
@@ -272,7 +285,7 @@ namespace Interchanges
             {
                 if (!junctionTemplates.TryGetValue(spec.Asset, out var template))
                     throw new InvalidOperationException($"switch {spec.Id}: unknown asset {spec.Asset}");
-                switches.Add(new PlacedSwitch(spec, template, staging.transform, W(spec.JointV), WDir(spec.Forward), switches.Count));
+                switches.Add(new PlacedSwitch(spec, template, staging.transform, W(spec.JointV), WDir(spec.Forward), switchIndexOffset + switches.Count));
             }
 
             foreach (var edit in layout.StockEdits)
@@ -302,7 +315,7 @@ namespace Interchanges
         private RailTrack NewTrack(string name, IList<(Vector3 Pos, Vector3 H1, Vector3 H2)> points)
         {
             if (points.Count < 2)
-                throw new InvalidOperationException($"track {name} has {points.Count} points");
+                throw new InvalidOperationException(FormattableString.Invariant($"track {name} has {points.Count} points"));
             var go = new GameObject(name);
             go.transform.SetParent(staging.transform, false);
             go.transform.position = points[0].Pos;
@@ -347,8 +360,7 @@ namespace Interchanges
         /// is the one edited.
         /// </summary>
         internal static bool IsPieceOf(string name, string stock) =>
-            name != null && stock != null && name.StartsWith(stock, StringComparison.Ordinal)
-            && name.Skip(stock.Length).All(ch => ch == 'A' || ch == 'B');
+            InterchangeMath.IsPieceOf(name, stock);
 
         private PendingTrim PrepareTrim(StockEdit edit)
         {
@@ -386,8 +398,8 @@ namespace Interchanges
             // Apply connects the joint, the through end and both stub ends to the stock track.
             sw.JointConnected = sw.ThroughConnected = true;
             trimStubs.Add(stub);
-            Notes.Add($"{edit.Track}: switch {sw.Spec.Id} placed on the stock curve {joint.Distance:F3} m from the layout joint; " +
-                      $"kept {through.ArcFromStart(curve):F1} m of {CurveCut.Length(curve):F1} m");
+            Notes.Add(FormattableString.Invariant($"{edit.Track}: switch {sw.Spec.Id} placed on the stock curve {joint.Distance:F3} m from the layout joint; ") +
+                      FormattableString.Invariant($"kept {through.ArcFromStart(curve):F1} m of {CurveCut.Length(curve):F1} m"));
             return new PendingTrim { Stock = stock.Track, Switch = sw, CutAtThrough = through, Stub = stub, Forward = forward, Original = original };
         }
 
@@ -431,7 +443,7 @@ namespace Interchanges
                     Snap(end, partner);
                     Link(end, partner);
                     if (gap > 0.02f)
-                        Notes.Add($"{end.Name}: snapped {gap:F3} m onto {partner.Name}");
+                        Notes.Add(FormattableString.Invariant($"{end.Name}: snapped {gap:F3} m onto {partner.Name}"));
                 }
 
                 // 3. Attach: switches first, then tracks and buffer stops, as [railway]'s last children.
@@ -576,6 +588,8 @@ namespace Interchanges
 
         private static void ResetPointSet(RailTrack t)
         {
+            if (PointSetField == null)
+                throw new InvalidOperationException("RailTrack.pointSet field not found");
             PointSetField.SetValue(t, null);
             RailTrack.pointSets.Remove(t);
         }
@@ -671,8 +685,8 @@ namespace Interchanges
                         Notes.Add($"{end.Name}: ends at a buffer stop");
                         continue;
                     }
-                    throw new InvalidOperationException($"{end.Name} has no partner within {SnapRange} m " +
-                                                        $"(nearest {(partner == null ? "none" : partner.Name + $" at {(partner.Pos - end.Pos).magnitude:F3} m")})");
+                    throw new InvalidOperationException(FormattableString.Invariant($"{end.Name} has no partner within {SnapRange} m ") +
+                                                        $"(nearest {(partner == null ? "none" : partner.Name + FormattableString.Invariant($" at {(partner.Pos - end.Pos).magnitude:F3} m"))})");
                 }
                 result.Add((end, partner, (partner.Pos - end.Pos).magnitude));
                 end.Used = partner.Used = true;
@@ -780,7 +794,7 @@ namespace Interchanges
             Junction.selectedBranch = 0;
             var data = Junction.junctionData;
             data.junctionId = 9000 + index;
-            data.junctionIdLong = $"W-{9000 + index}";
+            data.junctionIdLong = FormattableString.Invariant($"W-{9000 + index}");
             data.excludeFromJunctionMap = true;
             data.linkedJunctions = new List<int>();
             Junction.junctionData = data;

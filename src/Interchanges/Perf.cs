@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 #if DEVTOOLS
 using System.Collections.Generic;
@@ -26,7 +27,7 @@ namespace Interchanges
             Count(what, ms, detail);
 #endif
             if (ms >= SlowMs)
-                Main.Warn($"slow: {what} took {ms:F0} ms" + (detail != null ? $" ({detail})" : ""));
+                Main.Warn(FormattableString.Invariant($"slow: {what} took {ms:F0} ms") + (detail != null ? $" ({detail})" : ""));
             return ms;
         }
 
@@ -57,7 +58,7 @@ namespace Interchanges
             }
             frameMs += ms;
             if (ms >= 5)
-                frameCalls.Add($"{what} {ms:F0} ms" + (detail != null ? $" ({detail})" : ""));
+                frameCalls.Add(FormattableString.Invariant($"{what} {ms:F0} ms") + (detail != null ? $" ({detail})" : ""));
         }
 
         /// <summary>The work done since the last call, for one frame's line, and starts the next.</summary>
@@ -72,7 +73,7 @@ namespace Interchanges
         /// <summary>Each kind of work: how often, how long in all, the longest and where.</summary>
         public static IEnumerable<string> Report() =>
             entries.OrderByDescending(kv => kv.Value.TotalMs).Select(kv =>
-                $"{kv.Key}: {kv.Value.Count} call(s), {kv.Value.TotalMs:F0} ms in all, longest {kv.Value.MaxMs:F1} ms" +
+                FormattableString.Invariant($"{kv.Key}: {kv.Value.Count} call(s), {kv.Value.TotalMs:F0} ms in all, longest {kv.Value.MaxMs:F1} ms") +
                 (kv.Value.MaxDetail != null ? $" ({kv.Value.MaxDetail})" : ""));
 #endif
     }

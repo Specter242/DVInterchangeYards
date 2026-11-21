@@ -104,13 +104,32 @@ namespace Interchanges
         public Animator Animator;
         public bool Invert;
         private Coroutine off;
+        private bool started;
 
         private void Start()
         {
             if (Junction == null || Animator == null)
                 return;
+            started = true;
             Junction.Switched += OnSwitched;
             Play();
+        }
+
+        private void OnEnable()
+        {
+            if (started)
+                Play();
+        }
+
+        private void OnDisable()
+        {
+            if (off != null)
+            {
+                StopCoroutine(off);
+                off = null;
+            }
+            if (Animator != null)
+                Animator.enabled = false;
         }
 
         private void OnDestroy()
@@ -123,6 +142,8 @@ namespace Interchanges
 
         private void Play()
         {
+            if (Animator == null || Junction == null || !isActiveAndEnabled)
+                return;
             Animator.enabled = true;
             if (off != null)
                 StopCoroutine(off);
@@ -145,7 +166,8 @@ namespace Interchanges
         private IEnumerator Off()
         {
             yield return new WaitForSeconds(2f);
-            Animator.enabled = false;
+            if (Animator != null)
+                Animator.enabled = false;
             off = null;
         }
     }

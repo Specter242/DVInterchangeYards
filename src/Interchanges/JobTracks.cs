@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using DV.Logic.Job;
@@ -58,9 +60,9 @@ namespace Interchanges
             foreach (var t in tracks)
             {
                 var m = Regex.Match(t.name, @" yard (\d+)$");
-                if (!m.Success)
+                if (!m.Success || !int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx < 0 || idx == int.MaxValue)
                     continue;
-                var number = (int.Parse(m.Groups[1].Value) + 1).ToString("00");
+                var number = (idx + 1).ToString("00", CultureInfo.InvariantCulture);
                 var id = new TrackID(layout.Code, yard, number, TrackType);
                 byObject[t.gameObject] = id;
                 byStockName[id.RailTrackGameObjectID] = t.gameObject;
@@ -131,8 +133,8 @@ namespace Interchanges
                     __instance.yardTrackIdToTrack[track.ID.FullID] = track;
                     added++;
                 }
-                Notes.Add($"{added} interchange job track(s) registered with the yard organizer");
-                Main.Log($"job tracks: {added} registered with the yard organizer");
+                Notes.Add(FormattableString.Invariant($"{added} interchange job track(s) registered with the yard organizer"));
+                Main.Log(FormattableString.Invariant($"job tracks: {added} registered with the yard organizer"));
             }
         }
     }
